@@ -16,6 +16,7 @@ const SHORTCUTS: [string, string][] = [
   ['S', 'Shuffle'],
   ['R', 'Repeat'],
   ['Q', 'Open the queue'],
+  ['E', 'Open equalizer and sound'],
   ['/', 'Focus search'],
 ];
 

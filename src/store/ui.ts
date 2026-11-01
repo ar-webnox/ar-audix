@@ -37,7 +37,7 @@ export interface ConfirmState {
 
 interface UIState {
   toasts: Toast[];
-  panel: null | 'queue' | 'lyrics';
+  panel: null | 'queue' | 'lyrics' | 'sound';
   importOpen: boolean;
   sidebarOpen: boolean;
   dragging: boolean;
@@ -69,7 +69,7 @@ export function dismissToast(id: number): void {
   ui.set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
 }
 
-export function openPanel(panel: 'queue' | 'lyrics'): void {
+export function openPanel(panel: 'queue' | 'lyrics' | 'sound'): void {
   ui.set((s) => ({ panel: s.panel === panel ? null : panel }));
 }
 

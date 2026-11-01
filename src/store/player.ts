@@ -5,6 +5,7 @@ import { clamp } from '../lib/format';
 import { getArtworkUrl } from './artwork';
 import { library, onTracksRemoved, pushRecent, trackById } from './library';
 import { toast } from './ui';
+import { fx, registerDecks, resumeAudio } from './fx';
 import type { RepeatMode, Track } from '../types';
 
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -25,6 +26,8 @@ interface PlayerState {
   muted: boolean;
   rate: number;
   duration: number;
+  /** Changes whenever playback moves to the other audio element, so listeners can re-attach. */
+  deck: number;
 }
 
 interface SavedPrefs {
@@ -50,17 +53,31 @@ export const player = createStore<PlayerState>({
   muted: prefs.muted === true,
   rate: PLAYBACK_RATES.includes(prefs.rate ?? 0) ? (prefs.rate as number) : 1,
   duration: 0,
+  deck: 0,
 });
 
-/** The single HTML5 audio element used for all playback. */
-export const audio = new Audio();
-audio.preload = 'auto';
-audio.volume = player.get().volume;
-audio.muted = player.get().muted;
-audio.defaultPlaybackRate = player.get().rate;
-audio.playbackRate = player.get().rate;
+/**
+ * Playback uses two HTML5 audio elements ("decks"): one plays, the other preloads the next song
+ * so it can start instantly (gapless) or overlap the end of the current one (crossfade).
+ * `audio` always points at the deck that is currently playing.
+ */
+function makeDeck(): HTMLAudioElement {
+  const el = new Audio();
+  el.preload = 'auto';
+  el.volume = player.get().volume;
+  el.muted = player.get().muted;
+  el.defaultPlaybackRate = player.get().rate;
+  el.playbackRate = player.get().rate;
+  return el;
+}
+const decks = [makeDeck(), makeDeck()];
+registerDecks(decks);
+export let audio: HTMLAudioElement = decks[0];
 
-let objectUrl: string | null = null;
+const deckUrls = new Map<HTMLAudioElement, string>();
+let preload: { id: string; deck: HTMLAudioElement } | null = null;
+let transition: { outgoing: HTMLAudioElement; incoming: HTMLAudioElement; timer: ReturnType<typeof setInterval> } | null = null;
+let resumeAt: { id: string; time: number } | null = null;
 let loadToken = 0;
 let failStreak = 0;
 let recordedFor: string | null = null;
@@ -76,28 +93,161 @@ function shuffled(ids: string[], first: string | null): string[] {
   return first !== null && ids.includes(first) ? [first, ...rest] : rest;
 }
 
-function releaseSource(): void {
-  if (objectUrl) {
-    URL.revokeObjectURL(objectUrl);
-    objectUrl = null;
+function setDeckSource(deck: HTMLAudioElement, file: Blob | null): void {
+  const old = deckUrls.get(deck);
+  if (old) {
+    URL.revokeObjectURL(old);
+    deckUrls.delete(deck);
+  }
+  if (file) {
+    const url = URL.createObjectURL(file);
+    deckUrls.set(deck, url);
+    deck.src = url;
+  } else {
+    deck.pause();
+    deck.removeAttribute('src');
+    deck.load();
   }
 }
 
+const idleDeck = () => (audio === decks[0] ? decks[1] : decks[0]);
+
 function stopCompletely(): void {
   loadToken++;
-  audio.pause();
-  audio.removeAttribute('src');
-  audio.load();
-  releaseSource();
+  cancelTransition();
+  clearPreload();
+  setDeckSource(audio, null);
   recordedFor = null;
+  resumeAt = null;
   player.set({ currentId: null, queue: [], order: [], index: -1, playing: false, loading: false, duration: 0 });
   updateMediaSession(null);
 }
+
+/* ---------- gapless & crossfade ---------- */
+
+/** The song that will follow the current one, or null at the end of the queue (or on repeat one). */
+function wantedNext(): string | null {
+  const { order, index, repeat } = player.get();
+  if (index < 0 || repeat === 'one' || order.length < 2) return null;
+  if (index + 1 < order.length) return order[index + 1];
+  return repeat === 'all' ? order[0] : null;
+}
+
+function clearPreload(): void {
+  preloadToken++;
+  if (preload) {
+    setDeckSource(preload.deck, null);
+    preload = null;
+  }
+}
+
+let preloadToken = 0;
+let preloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Loads the upcoming song into the idle deck so it is ready to start without a gap. */
+async function preloadNext(): Promise<void> {
+  const id = wantedNext();
+  if (!id || transition) return;
+  if (preload?.id === id) return;
+  clearPreload();
+  const token = preloadToken;
+  const file = await db.getFile(id);
+  if (token !== preloadToken || !file || transition) return;
+  const deck = idleDeck();
+  setDeckSource(deck, file);
+  deck.volume = 0;
+  deck.defaultPlaybackRate = player.get().rate;
+  deck.playbackRate = player.get().rate;
+  deck.load();
+  preload = { id, deck };
+}
+
+function schedulePreload(): void {
+  clearTimeout(preloadTimer);
+  preloadTimer = setTimeout(() => void preloadNext(), 500);
+}
+
+/** Ends a crossfade at once: the old deck is silenced and the new one plays at full volume. */
+function cancelTransition(): void {
+  if (!transition) return;
+  const { outgoing, incoming, timer } = transition;
+  clearInterval(timer);
+  transition = null;
+  setDeckSource(outgoing, null);
+  incoming.volume = player.get().volume;
+  outgoing.volume = player.get().volume;
+  schedulePreload();
+}
+
+function startTransition(seconds: number): void {
+  const id = wantedNext();
+  if (!id || !preload || preload.id !== id || transition || preload.deck.readyState < 3) return;
+  const incoming = preload.deck;
+  const outgoing = audio;
+  preload = null;
+  const { order, index } = player.get();
+  const nextIndex = index + 1 < order.length ? index + 1 : 0;
+  const track = trackById(id);
+  const target = () => player.get().volume;
+
+  audio = incoming;
+  recordedFor = null;
+  failStreak = 0;
+  player.set({ currentId: id, index: nextIndex, duration: track?.duration ?? 0, deck: player.get().deck + 1, loading: false });
+  updateMediaSession(track ?? null);
+  incoming.volume = seconds > 0 ? 0 : target();
+  incoming.play().catch(() => {
+    // Could not start the preloaded deck: fall back to a normal load of the same song.
+    cancelTransition();
+    void loadAndPlay(id);
+  });
+
+  const started = performance.now();
+  const timer = setInterval(() => {
+    const t = Math.min(1, (performance.now() - started) / (seconds * 1000 || 1));
+    // Equal-power curves keep the perceived loudness steady through the overlap.
+    incoming.volume = target() * Math.sin((t * Math.PI) / 2);
+    outgoing.volume = target() * Math.cos((t * Math.PI) / 2);
+    if (t >= 1) cancelTransition();
+  }, 40);
+  transition = { outgoing, incoming, timer };
+  if (seconds === 0) {
+    // Gapless: nothing to fade, just let the old deck finish silently.
+    outgoing.volume = 0;
+    cancelTransition();
+  }
+  schedulePreload();
+}
+
+let gaplessTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Watches the playing deck and starts the next song just before this one ends. */
+setInterval(() => {
+  if (transition || audio.paused || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  const { crossfade, gapless } = fx.get();
+  const remaining = (audio.duration - audio.currentTime) / (audio.playbackRate || 1);
+  let overlap = Math.min(crossfade, audio.duration / 3);
+  if (overlap < 1) overlap = 0;
+  if (overlap === 0 && !gapless) return;
+  if (!preload || preload.id !== wantedNext()) return;
+  if (overlap > 0) {
+    if (remaining <= overlap) startTransition(overlap);
+  } else if (remaining <= 0.4 && gaplessTimer === undefined) {
+    // Start the next song on the exact end of this one rather than on the next poll.
+    gaplessTimer = setTimeout(() => {
+      gaplessTimer = undefined;
+      if (!audio.paused) startTransition(0);
+    }, Math.max(0, remaining * 1000 - 30));
+  }
+}, 150);
 
 /* ---------- loading ---------- */
 
 async function loadAndPlay(id: string, autoplay = true): Promise<void> {
   const token = ++loadToken;
+  cancelTransition();
+  clearTimeout(gaplessTimer);
+  gaplessTimer = undefined;
   const track = trackById(id);
   player.set({ currentId: id, loading: true, duration: track?.duration ?? 0 });
   const file = track ? await db.getFile(id) : null;
@@ -106,18 +256,30 @@ async function loadAndPlay(id: string, autoplay = true): Promise<void> {
     handleUnplayable(id, 'The file is no longer available.');
     return;
   }
-  releaseSource();
-  objectUrl = URL.createObjectURL(file);
-  audio.src = objectUrl;
-  audio.defaultPlaybackRate = player.get().rate;
-  audio.playbackRate = player.get().rate;
+  const deck = audio;
+  setDeckSource(deck, file);
+  deck.volume = player.get().volume;
+  deck.defaultPlaybackRate = player.get().rate;
+  deck.playbackRate = player.get().rate;
+  if (resumeAt && resumeAt.id === id) {
+    const time = resumeAt.time;
+    resumeAt = null;
+    deck.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (Number.isFinite(deck.duration) && time < deck.duration - 1) deck.currentTime = time;
+      },
+      { once: true },
+    );
+  }
   updateMediaSession(track);
+  schedulePreload();
   if (!autoplay) {
     player.set({ playing: false, loading: false });
     return;
   }
   try {
-    await audio.play();
+    await deck.play();
   } catch (err) {
     if (token !== loadToken) return;
     const name = (err as DOMException)?.name;
@@ -239,8 +401,8 @@ export function cycleRepeat(): void {
 
 export function setVolume(value: number): void {
   const volume = clamp(value, 0, 1);
-  audio.volume = volume;
-  audio.muted = volume === 0;
+  if (!transition) audio.volume = volume;
+  decks.forEach((d) => (d.muted = volume === 0));
   player.set({ volume, muted: volume === 0 });
 }
 
@@ -250,7 +412,7 @@ export function toggleMute(): void {
     setVolume(0.5);
     return;
   }
-  audio.muted = muted;
+  decks.forEach((d) => (d.muted = muted));
   player.set({ muted });
 }
 
@@ -260,8 +422,10 @@ export function nudgeVolume(delta: number): void {
 }
 
 export function setRate(rate: number): void {
-  audio.defaultPlaybackRate = rate;
-  audio.playbackRate = rate;
+  decks.forEach((d) => {
+    d.defaultPlaybackRate = rate;
+    d.playbackRate = rate;
+  });
   player.set({ rate });
 }
 
@@ -311,6 +475,16 @@ export function removeFromQueue(position: number): void {
   });
 }
 
+/** Moves an upcoming song to another position in the queue. Positions index into the play order. */
+export function moveInQueue(from: number, to: number): void {
+  const { order, queue, index, shuffle } = player.get();
+  if (from <= index || to <= index || from >= order.length || to >= order.length || from === to) return;
+  const moved = [...order];
+  const [id] = moved.splice(from, 1);
+  moved.splice(to, 0, id);
+  player.set({ order: moved, queue: shuffle ? queue : moved });
+}
+
 export function clearUpcoming(): void {
   const { order, index, queue, currentId } = player.get();
   if (index < 0) return;
@@ -341,36 +515,79 @@ onTracksRemoved((ids) => {
 
 /* ---------- audio element events ---------- */
 
-audio.addEventListener('playing', () => {
-  failStreak = 0;
-  const { currentId } = player.get();
-  player.set({ playing: true, loading: false });
-  if (currentId && recordedFor !== currentId) {
-    recordedFor = currentId;
-    pushRecent(currentId);
-  }
-});
-audio.addEventListener('pause', () => {
-  if (!audio.ended) player.set({ playing: false });
-});
-audio.addEventListener('waiting', () => player.set({ loading: true }));
-audio.addEventListener('canplay', () => player.set({ loading: false }));
-audio.addEventListener('loadedmetadata', () => {
-  if (Number.isFinite(audio.duration)) player.set({ duration: audio.duration });
-});
-audio.addEventListener('ended', () => {
-  if (player.get().repeat === 'one') {
-    audio.currentTime = 0;
-    audio.play().catch(() => player.set({ playing: false }));
-    return;
-  }
-  recordedFor = null;
-  next(true);
-});
-audio.addEventListener('error', () => {
-  if (!audio.getAttribute('src')) return;
-  const id = player.get().currentId;
-  if (id) handleUnplayable(id, 'This format isn’t supported by your browser.');
+let lastResumeSave = 0;
+
+function wire(el: HTMLAudioElement): void {
+  // Only the deck that is currently playing may change player state.
+  const live = (fn: () => void) => () => {
+    if (el === audio) fn();
+  };
+  el.addEventListener(
+    'playing',
+    live(() => {
+      failStreak = 0;
+      const { currentId } = player.get();
+      player.set({ playing: true, loading: false });
+      resumeAudio();
+      if (currentId && recordedFor !== currentId) {
+        recordedFor = currentId;
+        pushRecent(currentId);
+      }
+    }),
+  );
+  el.addEventListener('pause', live(() => !el.ended && player.set({ playing: false })));
+  el.addEventListener('waiting', live(() => player.set({ loading: true })));
+  el.addEventListener('canplay', live(() => player.set({ loading: false })));
+  el.addEventListener(
+    'loadedmetadata',
+    live(() => {
+      if (Number.isFinite(el.duration)) player.set({ duration: el.duration });
+    }),
+  );
+  el.addEventListener(
+    'timeupdate',
+    live(() => {
+      const now = Date.now();
+      const { currentId } = player.get();
+      if (currentId && now - lastResumeSave > 2000) {
+        lastResumeSave = now;
+        saveJSON('resume', { id: currentId, time: el.currentTime });
+      }
+    }),
+  );
+  el.addEventListener(
+    'ended',
+    live(() => {
+      if (player.get().repeat === 'one') {
+        el.currentTime = 0;
+        el.play().catch(() => player.set({ playing: false }));
+        return;
+      }
+      recordedFor = null;
+      next(true);
+    }),
+  );
+  el.addEventListener('error', () => {
+    if (!el.getAttribute('src')) return;
+    if (el !== audio) {
+      // A preloaded song that can't be decoded: forget it; it will be reported when it is reached.
+      if (preload?.deck === el) clearPreload();
+      return;
+    }
+    const id = player.get().currentId;
+    if (id) handleUnplayable(id, 'This format isn’t supported by your browser.');
+  });
+}
+decks.forEach(wire);
+
+// Re-plan the preload whenever the upcoming song, queue or repeat mode changes.
+let plannedFor = '';
+player.subscribe(() => {
+  const key = `${player.get().currentId}|${wantedNext()}`;
+  if (key === plannedFor) return;
+  plannedFor = key;
+  if (preload && preload.id !== wantedNext()) clearPreload();
+  if (player.get().currentId) schedulePreload();
 });
 
 /* ---------- system media controls ---------- */
@@ -417,3 +634,40 @@ player.subscribe(() => {
   const { volume, muted, rate, shuffle, repeat } = player.get();
   saveJSON('player', { volume, muted, rate, shuffle, repeat } satisfies SavedPrefs);
 });
+
+/* ---------- queue & position survive a refresh ---------- */
+
+interface SavedQueue {
+  queue: string[];
+  order: string[];
+  index: number;
+  currentId: string | null;
+}
+
+let queueTimer: ReturnType<typeof setTimeout> | undefined;
+let savedRefs: unknown[] = [];
+player.subscribe(() => {
+  const { queue, order, index, currentId } = player.get();
+  const refs = [queue, order, index, currentId];
+  if (refs.every((r, i) => r === savedRefs[i])) return;
+  savedRefs = refs;
+  clearTimeout(queueTimer);
+  queueTimer = setTimeout(() => saveJSON('queue', { queue, order, index, currentId } satisfies SavedQueue), 300);
+});
+
+/** Puts the queue and the current song back (paused, at the saved position) after the library has loaded. */
+export function restoreSession(): void {
+  if (player.get().currentId) return;
+  const saved = loadJSON<Partial<SavedQueue>>('queue', {});
+  const resume = loadJSON<{ id?: string; time?: number }>('resume', {});
+  const known = (id: unknown): id is string => typeof id === 'string' && trackById(id) !== undefined;
+  if (!Array.isArray(saved.order) || !known(saved.currentId)) return;
+  const order = saved.order.filter(known);
+  const queue = (Array.isArray(saved.queue) ? saved.queue : order).filter(known);
+  const currentId = saved.currentId;
+  const index = order[saved.index ?? -1] === currentId ? (saved.index as number) : order.indexOf(currentId);
+  if (index < 0) return;
+  player.set({ queue, order, index });
+  if (resume.id === currentId && typeof resume.time === 'number') resumeAt = { id: currentId, time: resume.time };
+  void loadAndPlay(currentId, false);
+}

@@ -22,7 +22,14 @@ export function SongsPage() {
   const ready = useStore(library, (s) => s.ready);
   const [sortKey, setSortKey] = useState<SortKey>('title');
   const [ascending, setAscending] = useState(true);
-  const sorted = useMemo(() => sortTracks(tracks, sortKey, ascending), [tracks, sortKey, ascending]);
+  const [filter, setFilter] = useState('');
+  const sorted = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const list = q
+      ? tracks.filter((t) => `${t.title} ${t.artist} ${t.album} ${t.fileName}`.toLowerCase().includes(q))
+      : tracks;
+    return sortTracks(list, sortKey, ascending);
+  }, [tracks, sortKey, ascending, filter]);
   const ids = sorted.map((t) => t.id);
 
   if (ready && tracks.length === 0) {
@@ -81,8 +88,21 @@ export function SongsPage() {
           <Icon name={ascending ? 'chevronUp' : 'chevronDown'} size={16} />
           {ascending ? 'Ascending' : 'Descending'}
         </button>
+        <input
+          type="search"
+          className="filter-input"
+          placeholder="Filter by song, artist or album"
+          aria-label="Filter songs"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        {filter.trim() !== '' && <span className="toolbar-note">{plural(sorted.length, 'match')}</span>}
       </div>
-      <SongList tracks={sorted} />
+      {sorted.length === 0 ? (
+        <EmptyState icon="search" title="No matching songs" description="Try a different word, or clear the filter." />
+      ) : (
+        <SongList tracks={sorted} />
+      )}
     </div>
   );
 }

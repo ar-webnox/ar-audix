@@ -129,6 +129,7 @@ const icons = {
       <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
     </>
   ),
+  sliders: <path d="M5 4v16M12 4v16M19 4v16M3 14h4M10 8h4M17 15h4" />,
   plus: <path d="M12 5v14M5 12h14" />,
   upload: (
     <>

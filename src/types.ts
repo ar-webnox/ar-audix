@@ -13,6 +13,8 @@ export interface Track {
   addedAt: number;
   /** Id of the embedded cover in the artwork store. null: scanned, none found. undefined: not scanned yet. */
   artId?: string | null;
+  /** True once the file's embedded text tags have been read (and used when present). */
+  tagged?: boolean;
 }
 
 export interface Playlist {

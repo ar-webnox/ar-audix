@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useRoute } from './lib/router';
 import { initLibrary } from './store/library';
-import { nudgeVolume, cycleRepeat, next, previous, seekBy, toggleMute, togglePlay, toggleShuffle } from './store/player';
+import { restoreSession, nudgeVolume, cycleRepeat, next, previous, seekBy, toggleMute, togglePlay, toggleShuffle } from './store/player';
 import { openPanel } from './store/ui';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
@@ -121,6 +121,10 @@ function useShortcuts() {
         case 'Q':
           openPanel('queue');
           break;
+        case 'e':
+        case 'E':
+          openPanel('sound');
+          break;
         case '/':
           e.preventDefault();
           document.getElementById('global-search')?.focus();
@@ -138,7 +142,7 @@ export function App() {
   useShortcuts();
 
   useEffect(() => {
-    void initLibrary();
+    void initLibrary().then(restoreSession);
   }, []);
 
   // Detail pages start at the top. Search keeps its place while the query changes.

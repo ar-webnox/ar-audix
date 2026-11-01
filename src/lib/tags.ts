@@ -1,10 +1,12 @@
 /**
- * Reads the embedded Title and Artist text tags from a file (display only; nothing is stored).
+ * Reads the embedded Title, Artist, Album and track number from a file.
  * MP3 (ID3v2.2–2.4, ID3v1), M4A/MP4, FLAC, Ogg Vorbis and Opus. Returns {} when there is no usable tag.
  */
 export interface Tags {
   title?: string;
   artist?: string;
+  album?: string;
+  trackNo?: number;
 }
 
 async function read(file: Blob, start: number, length: number): Promise<Uint8Array> {
@@ -16,6 +18,10 @@ const be32 = (b: Uint8Array, o: number): number => ((b[o] << 24) | (b[o + 1] << 
 const le32 = (b: Uint8Array, o: number): number => ((b[o + 3] << 24) | (b[o + 2] << 16) | (b[o + 1] << 8) | b[o]) >>> 0;
 const syncsafe = (b: Uint8Array, o: number): number => ((b[o] & 0x7f) << 21) | ((b[o + 1] & 0x7f) << 14) | ((b[o + 2] & 0x7f) << 7) | (b[o + 3] & 0x7f);
 const ascii = (b: Uint8Array, s: number, e: number): string => String.fromCharCode(...b.subarray(s, e));
+const trackNumber = (s: string | undefined): number | undefined => {
+  const n = parseInt(s ?? '', 10);
+  return Number.isFinite(n) && n > 0 && n < 1000 ? n : undefined;
+};
 const clean = (s: string | undefined): string | undefined => {
   const t = s?.replace(/\u0000/g, ' ').replace(/\s+/g, ' ').trim();
   return t ? t : undefined;
@@ -55,8 +61,7 @@ async function readId3v2(file: Blob): Promise<Tags | null> {
   }
   const idLen = version === 2 ? 3 : 4;
   const hdrLen = version === 2 ? 6 : 10;
-  const titleId = version === 2 ? 'TT2' : 'TIT2';
-  const artistId = version === 2 ? 'TP1' : 'TPE1';
+  const ids = version === 2 ? { title: 'TT2', artist: 'TP1', album: 'TAL', track: 'TRK' } : { title: 'TIT2', artist: 'TPE1', album: 'TALB', track: 'TRCK' };
   const out: Tags = {};
   for (let guard = 0; pos + hdrLen <= end && guard < 400; guard++) {
     const h = await read(file, pos, hdrLen);
@@ -64,11 +69,13 @@ async function readId3v2(file: Blob): Promise<Tags | null> {
     const id = ascii(h, 0, idLen);
     const size = version === 2 ? (h[3] << 16) | (h[4] << 8) | h[5] : version === 4 ? syncsafe(h, 4) : be32(h, 4);
     if (size <= 0 || pos + hdrLen + size > end) break;
-    if ((id === titleId || id === artistId) && size < 4096) {
+    if ((id === ids.title || id === ids.artist || id === ids.album || id === ids.track) && size < 4096) {
       const values = id3Text(await read(file, pos + hdrLen, size));
-      if (id === titleId) out.title = clean(values[0]);
-      else out.artist = clean(values.join(', '));
-      if (out.title && out.artist) break;
+      if (id === ids.title) out.title = clean(values[0]);
+      else if (id === ids.artist) out.artist = clean(values.join(', '));
+      else if (id === ids.album) out.album = clean(values[0]);
+      else out.trackNo = trackNumber(values[0]);
+      if (out.title && out.artist && out.album && out.trackNo) break;
     }
     pos += hdrLen + size;
   }
@@ -79,7 +86,7 @@ async function readId3v1(file: Blob): Promise<Tags> {
   const b = await read(file, file.size - 128, 128);
   if (b.length < 128 || ascii(b, 0, 3) !== 'TAG') return {};
   const field = (s: number, e: number) => clean(new TextDecoder('windows-1252').decode(b.subarray(s, e)));
-  return { title: field(3, 33), artist: field(33, 63) };
+  return { title: field(3, 33), artist: field(33, 63), album: field(63, 93), trackNo: b[125] === 0 && b[126] > 0 ? b[126] : undefined };
 }
 
 /** Vorbis comment block: vendor string, then KEY=value entries. */
@@ -103,6 +110,8 @@ function vorbisComments(b: Uint8Array, start: number): Tags {
       const value = clean(entry.slice(eq + 1));
       if (key === 'TITLE' && !out.title) out.title = value;
       else if (key === 'ARTIST' && !out.artist) out.artist = value;
+      else if (key === 'ALBUM' && !out.album) out.album = value;
+      else if (key === 'TRACKNUMBER' && !out.trackNo) out.trackNo = trackNumber(value);
     }
   } catch {
     /* truncated comment block: keep what was read */
@@ -182,7 +191,16 @@ async function readMp4(file: Blob): Promise<Tags> {
     const payload = await read(file, data.start + data.header + 8, data.size - data.header - 8);
     return clean(new TextDecoder('utf-8').decode(payload));
   };
-  return { title: await text('©nam'), artist: await text('©ART') };
+  let trackNo: number | undefined;
+  const trkn = await findBox(file, box.start + box.header, box.start + box.size, 'trkn');
+  if (trkn) {
+    const data = await findBox(file, trkn.start + trkn.header, trkn.start + trkn.size, 'data');
+    if (data && data.size >= data.header + 12) {
+      const b = await read(file, data.start + data.header + 8, 4);
+      trackNo = trackNumber(String((b[2] << 8) | b[3]));
+    }
+  }
+  return { title: await text('©nam'), artist: await text('©ART'), album: await text('©alb'), trackNo };
 }
 
 export async function readTags(file: Blob): Promise<Tags> {

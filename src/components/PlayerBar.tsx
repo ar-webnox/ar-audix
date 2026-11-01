@@ -259,6 +259,16 @@ export function PlayerBar() {
         </button>
         <button
           type="button"
+          className={`icon-btn toggle${panel === 'sound' ? ' on' : ''}`}
+          onClick={() => openPanel('sound')}
+          aria-label="Equalizer and sound settings"
+          aria-pressed={panel === 'sound'}
+          title="Equalizer and sound (E)"
+        >
+          <Icon name="sliders" size={19} />
+        </button>
+        <button
+          type="button"
           className={`icon-btn toggle${panel === 'queue' ? ' on' : ''}`}
           onClick={() => openPanel('queue')}
           aria-label="Queue"

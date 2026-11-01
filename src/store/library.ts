@@ -3,6 +3,7 @@ import { createStore, useStore } from '../lib/createStore';
 import { db, onDbBlocked } from '../lib/db';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { inferMeta } from '../lib/metadata';
+import { readTags, type Tags } from '../lib/tags';
 import { extensionOf, isAudioFile, readDuration, type Candidate } from '../lib/audioFiles';
 import { buildIndex, type LibraryIndex } from '../lib/derive';
 import { hashString, plural } from '../lib/format';
@@ -150,7 +151,7 @@ export async function initLibrary(): Promise<void> {
 
   const { tracks, persistent } = await db.loadTracks();
   library.set({ tracks, ready: true, persistent });
-  void backfillArtwork();
+  void backfillArtwork().then(backfillTags);
 }
 
 function pickUser(): UserData {
@@ -221,12 +222,14 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
       } else {
         const artId = await ensureArtwork(c.file).catch(() => null);
         const meta = inferMeta(c.path);
+        const tags = await readTags(c.file);
         const track: Track = {
           id,
-          title: meta.title,
-          artist: meta.artist,
-          album: meta.album,
-          trackNo: meta.trackNo,
+          title: tags.title ?? meta.title,
+          artist: tags.artist ?? meta.artist,
+          album: tags.album ?? meta.album,
+          trackNo: tags.trackNo ?? meta.trackNo,
+          tagged: true,
           duration,
           fileName: c.file.name,
           ext: extensionOf(c.file.name),
@@ -339,6 +342,44 @@ async function backfillArtwork(): Promise<void> {
       const file = await db.getFile(id);
       const artId = file ? await ensureArtwork(file).catch(() => null) : null;
       found.set(id, artId);
+      if (found.size >= 25) flush();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  flush();
+}
+
+/** Reads embedded text tags for songs imported before tag support. Only fills in what a file actually has. */
+async function backfillTags(): Promise<void> {
+  const todo = library.get().tracks.filter((t) => t.tagged === undefined).map((t) => t.id);
+  if (todo.length === 0) return;
+  const found = new Map<string, Tags>();
+  const flush = () => {
+    if (found.size === 0) return;
+    const batch = new Map(found);
+    found.clear();
+    const apply = (t: Track): Track => {
+      const tags = batch.get(t.id);
+      if (!tags) return t;
+      return {
+        ...t,
+        title: tags.title ?? t.title,
+        artist: tags.artist ?? t.artist,
+        album: tags.album ?? t.album,
+        trackNo: tags.trackNo ?? t.trackNo,
+        tagged: true,
+      };
+    };
+    library.set((s) => ({ tracks: s.tracks.map(apply) }));
+    void db.updateTracks(library.get().tracks.filter((t) => batch.has(t.id)));
+  };
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < todo.length) {
+      const id = todo[cursor++];
+      if (!trackById(id)) continue;
+      const file = await db.getFile(id);
+      found.set(id, file ? await readTags(file) : {});
       if (found.size >= 25) flush();
     }
   };

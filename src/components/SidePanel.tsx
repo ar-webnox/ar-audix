@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { useStore } from '../lib/createStore';
 import { formatTime, plural } from '../lib/format';
 import { trackById } from '../store/library';
-import { clearUpcoming, jumpTo, player, removeFromQueue } from '../store/player';
+import { clearUpcoming, jumpTo, moveInQueue, player, removeFromQueue } from '../store/player';
 import { closePanel, ui } from '../store/ui';
 import { Artwork } from './Artwork';
 import { Equalizer } from './common';
 import { Icon } from './Icon';
+import { SoundView } from './SoundPanel';
 
 const UPCOMING_LIMIT = 100;
 
@@ -16,6 +18,8 @@ function QueueView() {
   const current = index >= 0 ? trackById(order[index]) : undefined;
   const upcoming = order.slice(index + 1);
   const shown = upcoming.slice(0, UPCOMING_LIMIT);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   if (!current) {
     return (
@@ -54,7 +58,31 @@ function QueueView() {
           if (!t) return null;
           const position = index + 1 + i;
           return (
-            <li key={`${id}-${position}`} className="queue-item">
+            <li
+              key={`${id}-${position}`}
+              className={`queue-item${dragFrom === position ? ' dragging' : ''}${dragOver === position && dragFrom !== position ? ' drop-target' : ''}`}
+              draggable
+              onDragStart={(e) => {
+                setDragFrom(position);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(position));
+              }}
+              onDragOver={(e) => {
+                if (dragFrom === null) return;
+                e.preventDefault();
+                setDragOver(position);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragFrom !== null) moveInQueue(dragFrom, position);
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+              onDragEnd={() => {
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+            >
               <button type="button" className="queue-hit" onClick={() => jumpTo(position)} aria-label={`Play ${t.title}`}>
                 <Artwork seed={t.album} size={40} artId={t.artId} />
                 <div className="queue-text">
@@ -63,6 +91,26 @@ function QueueView() {
                 </div>
                 <span className="queue-time">{formatTime(t.duration)}</span>
               </button>
+              <div className="queue-move">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => moveInQueue(position, position - 1)}
+                  disabled={position === index + 1}
+                  aria-label={`Move ${t.title} up`}
+                >
+                  <Icon name="chevronUp" size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => moveInQueue(position, position + 1)}
+                  disabled={position === order.length - 1}
+                  aria-label={`Move ${t.title} down`}
+                >
+                  <Icon name="chevronDown" size={14} />
+                </button>
+              </div>
               <button
                 type="button"
                 className="icon-btn queue-remove"
@@ -103,11 +151,14 @@ export function SidePanel() {
   return (
     <>
       <div className="panel-scrim" onClick={closePanel} />
-      <aside className="side-panel" aria-label={panel === 'queue' ? 'Queue' : 'Lyrics'}>
+      <aside className="side-panel" aria-label={panel === 'queue' ? 'Queue' : panel === 'sound' ? 'Sound' : 'Lyrics'}>
         <header className="panel-header">
           <div className="panel-tabs" role="tablist">
             <button type="button" role="tab" aria-selected={panel === 'queue'} className={panel === 'queue' ? 'on' : ''} onClick={() => ui.set({ panel: 'queue' })}>
               Queue
+            </button>
+            <button type="button" role="tab" aria-selected={panel === 'sound'} className={panel === 'sound' ? 'on' : ''} onClick={() => ui.set({ panel: 'sound' })}>
+              Sound
             </button>
             <button type="button" role="tab" aria-selected={panel === 'lyrics'} className={panel === 'lyrics' ? 'on' : ''} onClick={() => ui.set({ panel: 'lyrics' })}>
               Lyrics
@@ -117,7 +168,7 @@ export function SidePanel() {
             <Icon name="close" size={18} />
           </button>
         </header>
-        <div className="panel-body">{panel === 'queue' ? <QueueView /> : <LyricsView />}</div>
+        <div className="panel-body">{panel === 'queue' ? <QueueView /> : panel === 'sound' ? <SoundView /> : <LyricsView />}</div>
       </aside>
     </>
   );
