@@ -7,10 +7,10 @@ import { readTags, type Tags } from '../lib/tags';
 import { extensionOf, isAudioFile, readDuration, type Candidate } from '../lib/audioFiles';
 import { buildIndex, type LibraryIndex } from '../lib/derive';
 import { hashString, plural } from '../lib/format';
-import { applyAccent } from '../lib/theme';
+import { applyAppearance } from '../lib/theme';
 import { ensureArtwork, forgetArtwork } from './artwork';
 import { toast } from './ui';
-import type { AccentName, Playlist, RecentEntry, Settings, Track } from '../types';
+import type { AccentName, Playlist, RecentEntry, Settings, SortName, Track } from '../types';
 
 interface LibraryState {
   tracks: Track[];
@@ -32,15 +32,25 @@ interface UserData {
 }
 
 /** The preset accents, in display order. The first one is the default. */
-export const ACCENTS: { name: AccentName; label: string; color: string }[] = [
-  { name: 'sky', label: 'Sky', color: '#7cb7ee' },
-  { name: 'amber', label: 'Amber', color: '#e7b86a' },
-  { name: 'rose', label: 'Rose', color: '#e58a9b' },
-  { name: 'mint', label: 'Mint', color: '#6fd0b0' },
-  { name: 'violet', label: 'Violet', color: '#a996f0' },
+export const ACCENTS: { name: AccentName; label: string; color: string; lightColor: string }[] = [
+  { name: 'sky', label: 'Sky', color: '#7cb7ee', lightColor: '#1f6cb8' },
+  { name: 'amber', label: 'Amber', color: '#e7b86a', lightColor: '#98600a' },
+  { name: 'rose', label: 'Rose', color: '#e58a9b', lightColor: '#b83a56' },
+  { name: 'mint', label: 'Mint', color: '#6fd0b0', lightColor: '#12775a' },
+  { name: 'violet', label: 'Violet', color: '#a996f0', lightColor: '#5a43c2' },
 ];
 
-const defaultSettings: Settings = { accent: ACCENTS[0].name, autoSkip: true };
+export const defaultSettings: Settings = {
+  accent: ACCENTS[0].name,
+  autoSkip: true,
+  theme: 'dark',
+  reduceMotion: false,
+  showArtwork: true,
+  importTags: true,
+  importArtwork: true,
+  defaultSort: { key: 'title', ascending: true },
+};
+const SORT_KEYS: SortName[] = ['added', 'title', 'artist', 'album', 'duration'];
 const saved = loadJSON<Partial<UserData>>('user', {});
 
 /**
@@ -62,6 +72,15 @@ function sanitizeSettings(raw: Partial<Settings> | undefined): Settings {
     customColor,
     accentChosen: accentChosen || undefined,
     autoSkip: typeof stored.autoSkip === 'boolean' ? stored.autoSkip : defaultSettings.autoSkip,
+    theme: stored.theme === 'light' || stored.theme === 'system' || stored.theme === 'dark' ? stored.theme : defaultSettings.theme,
+    reduceMotion: stored.reduceMotion === true,
+    showArtwork: stored.showArtwork !== false,
+    importTags: stored.importTags !== false,
+    importArtwork: stored.importArtwork !== false,
+    defaultSort:
+      stored.defaultSort && SORT_KEYS.includes(stored.defaultSort.key)
+        ? { key: stored.defaultSort.key, ascending: stored.defaultSort.ascending !== false }
+        : defaultSettings.defaultSort,
   };
 }
 
@@ -122,7 +141,7 @@ export function resolveTracks(ids: string[]): Track[] {
 /* ---------- init & persistence ---------- */
 
 // Apply the accent as soon as this module loads, before React renders anything.
-applyAccent(library.get().settings.accent, library.get().settings.customColor);
+applyAppearance(library.get().settings);
 
 let started = false;
 
@@ -220,16 +239,17 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
       if (duration < 0) {
         failed++;
       } else {
-        const artId = await ensureArtwork(c.file).catch(() => null);
+        const { importArtwork, importTags } = library.get().settings;
+        const artId = importArtwork ? await ensureArtwork(c.file).catch(() => null) : null;
         const meta = inferMeta(c.path);
-        const tags = await readTags(c.file);
+        const tags = importTags ? await readTags(c.file) : {};
         const track: Track = {
           id,
           title: tags.title ?? meta.title,
           artist: tags.artist ?? meta.artist,
           album: tags.album ?? meta.album,
           trackNo: tags.trackNo ?? meta.trackNo,
-          tagged: true,
+          tagged: importTags,
           duration,
           fileName: c.file.name,
           ext: extensionOf(c.file.name),
@@ -466,5 +486,19 @@ export function updateSettings(patch: Partial<Settings>): void {
   library.set({ settings });
   // Save right away (not debounced) so a change made just before a refresh is never lost.
   saveJSON('user', pickUser());
-  if (patch.accent !== undefined || patch.customColor !== undefined) applyAccent(settings.accent, settings.customColor);
+  applyAppearance(settings);
+}
+
+/** Puts every setting back to its default. The library, playlists and favorites are not touched. */
+export function resetSettings(): void {
+  library.set({ settings: { ...defaultSettings } });
+  saveJSON('user', pickUser());
+  applyAppearance(defaultSettings);
+}
+
+// Follow the operating system's light/dark switch while the theme is set to "System".
+if (typeof matchMedia === 'function') {
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (library.get().settings.theme === 'system') applyAppearance(library.get().settings);
+  });
 }

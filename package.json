@@ -1,7 +1,7 @@
 {
   "name": "ar-audix",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "AR AUDIX — a premium local music player for the browser.",
   "type": "module",
   "scripts": {

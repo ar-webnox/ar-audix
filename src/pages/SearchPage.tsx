@@ -25,7 +25,7 @@ export function SearchPage({ query }: { query: string }) {
         <EmptyState
           icon="search"
           title={tracks.length === 0 ? 'Your library is empty' : 'No matches'}
-          description={tracks.length === 0 ? 'Import some music, then search it here.' : 'Try a different spelling, or search by artist or album.'}
+          description={tracks.length === 0 ? 'Import some music, then search it here.' : 'Try a different spelling or search by artist or album.'}
         />
       ) : (
         <>

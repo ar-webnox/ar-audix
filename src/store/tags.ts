@@ -23,7 +23,7 @@ function loadTags(id: string): Promise<Tags> {
   return job;
 }
 
-/** The track's embedded Title/Artist, or null while they are still being read. */
+/** The track's embedded Title/Artist or null while they are still being read. */
 export function useTags(id: string): Tags | null {
   const [tags, setTags] = useState<Tags | null>(() => cache.get(id) ?? null);
   useEffect(() => {

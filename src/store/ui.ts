@@ -38,6 +38,8 @@ export interface ConfirmState {
 interface UIState {
   toasts: Toast[];
   panel: null | 'queue' | 'lyrics' | 'sound';
+  /** The full-screen Now Playing view. */
+  nowPlaying: boolean;
   importOpen: boolean;
   sidebarOpen: boolean;
   dragging: boolean;
@@ -49,6 +51,7 @@ interface UIState {
 export const ui = createStore<UIState>({
   toasts: [],
   panel: null,
+  nowPlaying: false,
   importOpen: false,
   sidebarOpen: false,
   dragging: false,
@@ -72,6 +75,9 @@ export function dismissToast(id: number): void {
 export function openPanel(panel: 'queue' | 'lyrics' | 'sound'): void {
   ui.set((s) => ({ panel: s.panel === panel ? null : panel }));
 }
+
+export const openNowPlaying = () => ui.set({ nowPlaying: true, sidebarOpen: false });
+export const closeNowPlaying = () => ui.set({ nowPlaying: false });
 
 export function closePanel(): void {
   ui.set({ panel: null });

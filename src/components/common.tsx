@@ -93,7 +93,7 @@ interface CardProps {
   playLabel?: string;
 }
 
-/** A browsing card with artwork, a hover play button, and a link to its detail page. */
+/** A browsing card with artwork, a hover play button and a link to its detail page. */
 export function MediaCard({ href, title, subtitle, seed, round, initials, artId, onPlay, playLabel }: CardProps) {
   const body = (
     <>

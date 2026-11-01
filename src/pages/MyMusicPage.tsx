@@ -27,7 +27,7 @@ export function MyMusicPage() {
 
   return (
     <div className="page">
-      <PageHeader title="My Music" subtitle="Your local library: add music, and see what’s inside." />
+      <PageHeader title="My Music" subtitle="Your local library: add music and see what’s inside." />
 
       <ImportDropzone compact />
 

@@ -26,7 +26,7 @@ function QueueView() {
       <div className="panel-empty">
         <Icon name="queue" size={28} />
         <p>Your queue is empty.</p>
-        <span>Play a song, or use “Add to queue” on any track.</span>
+        <span>Play a song or use “Add to queue” on any track.</span>
       </div>
     );
   }

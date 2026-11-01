@@ -370,7 +370,7 @@ async function readOgg(file: Blob): Promise<Candidate[]> {
 
 /* ---------------- public API ---------------- */
 
-/** Finds the embedded cover picture of an audio file, or null when it has none. Never throws. */
+/** Finds the embedded cover picture of an audio file or null when it has none. Never throws. */
 export async function extractPicture(file: Blob): Promise<Picture | null> {
   try {
     const head = await read(file, 0, 12);

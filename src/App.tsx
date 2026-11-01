@@ -1,23 +1,39 @@
-import { useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef } from 'react';
+import { useStore } from './lib/createStore';
 import { useRoute } from './lib/router';
 import { initLibrary } from './store/library';
 import { restoreSession, nudgeVolume, cycleRepeat, next, previous, seekBy, toggleMute, togglePlay, toggleShuffle } from './store/player';
-import { openPanel } from './store/ui';
+import { openPanel, ui } from './store/ui';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { PlayerBar } from './components/PlayerBar';
-import { SidePanel } from './components/SidePanel';
 import { ConfirmDialog, DropOverlay, ImportDialog, ImportProgress, PlaylistDialog, ToastHost, TrackMenuHost } from './components/Overlays';
 import { EmptyState } from './components/common';
 import { HomePage } from './pages/HomePage';
-import { MyMusicPage } from './pages/MyMusicPage';
-import { SongsPage } from './pages/SongsPage';
-import { AlbumDetailPage, AlbumsPage } from './pages/AlbumsPage';
-import { ArtistDetailPage, ArtistsPage } from './pages/ArtistsPage';
-import { PlaylistDetailPage, PlaylistsPage } from './pages/PlaylistsPage';
-import { FavoritesPage, RecentPage } from './pages/CollectionPages';
-import { SearchPage } from './pages/SearchPage';
-import { SettingsPage } from './pages/SettingsPage';
+
+// Everything except the home page and the always-visible shell is loaded on first use.
+const MyMusicPage = lazy(() => import('./pages/MyMusicPage').then((m) => ({ default: m.MyMusicPage })));
+const SongsPage = lazy(() => import('./pages/SongsPage').then((m) => ({ default: m.SongsPage })));
+const AlbumsPage = lazy(() => import('./pages/AlbumsPage').then((m) => ({ default: m.AlbumsPage })));
+const AlbumDetailPage = lazy(() => import('./pages/AlbumsPage').then((m) => ({ default: m.AlbumDetailPage })));
+const ArtistsPage = lazy(() => import('./pages/ArtistsPage').then((m) => ({ default: m.ArtistsPage })));
+const ArtistDetailPage = lazy(() => import('./pages/ArtistsPage').then((m) => ({ default: m.ArtistDetailPage })));
+const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage').then((m) => ({ default: m.PlaylistsPage })));
+const PlaylistDetailPage = lazy(() => import('./pages/PlaylistsPage').then((m) => ({ default: m.PlaylistDetailPage })));
+const FavoritesPage = lazy(() => import('./pages/CollectionPages').then((m) => ({ default: m.FavoritesPage })));
+const RecentPage = lazy(() => import('./pages/CollectionPages').then((m) => ({ default: m.RecentPage })));
+const SearchPage = lazy(() => import('./pages/SearchPage').then((m) => ({ default: m.SearchPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const SidePanel = lazy(() => import('./components/SidePanel').then((m) => ({ default: m.SidePanel })));
+const NowPlaying = lazy(() => import('./components/NowPlaying'));
+
+function PageLoading() {
+  return (
+    <div className="page-loading" role="status" aria-label="Loading">
+      <span className="spinner" />
+    </div>
+  );
+}
 
 function Page() {
   const route = useRoute();
@@ -139,6 +155,8 @@ function useShortcuts() {
 export function App() {
   const route = useRoute();
   const scrollRef = useRef<HTMLElement>(null);
+  const panel = useStore(ui, (st) => st.panel);
+  const nowPlaying = useStore(ui, (st) => st.nowPlaying);
   useShortcuts();
 
   useEffect(() => {
@@ -156,11 +174,16 @@ export function App() {
       <div className="workspace">
         <Topbar />
         <main ref={scrollRef} className="content" data-scroll-root id="main" tabIndex={-1}>
-          <Page />
+          <Suspense fallback={<PageLoading />}>
+            <Page />
+          </Suspense>
         </main>
       </div>
       <PlayerBar />
-      <SidePanel />
+      <Suspense fallback={null}>
+        {panel !== null && <SidePanel />}
+        {nowPlaying && <NowPlaying />}
+      </Suspense>
       <ImportProgress />
       <ImportDialog />
       <TrackMenuHost />

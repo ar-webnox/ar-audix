@@ -18,7 +18,7 @@ import {
   togglePlay,
   toggleShuffle,
 } from '../store/player';
-import { openPanel, ui, type AnchorRect } from '../store/ui';
+import { openNowPlaying, openPanel, ui, type AnchorRect } from '../store/ui';
 import { Artwork } from './Artwork';
 import { Icon } from './Icon';
 import { MenuItems, Popover, rectOf } from './Popover';
@@ -55,7 +55,7 @@ function useAudioTime(): number {
   return time;
 }
 
-function SeekBar() {
+export function SeekBar() {
   const time = useAudioTime();
   const duration = useStore(player, (s) => s.duration);
   const currentId = useStore(player, (s) => s.currentId);
@@ -170,7 +170,9 @@ export function PlayerBar() {
       <div className="player-info">
         {track ? (
           <>
-            <Artwork seed={track.album} size={56} className="player-art" artId={track.artId} />
+            <button type="button" className="player-open" onClick={openNowPlaying} aria-label="Open Now Playing" title="Now Playing">
+              <Artwork seed={track.album} size={56} className="player-art" artId={track.artId} />
+            </button>
             <div className="player-text">
               <div className="player-title" title={track.title}>
                 {track.title}

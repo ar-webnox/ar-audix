@@ -18,7 +18,7 @@ import { player } from '../store/player';
 const bandLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : String(hz));
 
 /** Frequency bars, drawn only while the panel is open and music is playing. */
-function Visualizer() {
+export function Visualizer() {
   const ref = useRef<HTMLCanvasElement>(null);
   const playing = useStore(player, (s) => s.playing);
   const graph = useStore(fx, (s) => s.graph);
@@ -75,6 +75,7 @@ export function SoundView() {
   const crossfade = useStore(fx, (s) => s.crossfade);
   const gapless = useStore(fx, (s) => s.gapless);
   const graph = useStore(fx, (s) => s.graph);
+  const visualizer = useStore(fx, (s) => s.visualizer);
 
   // Opening this panel is a user action, so it is a good moment to start the audio graph.
   useEffect(() => {
@@ -83,6 +84,7 @@ export function SoundView() {
 
   return (
     <div className="sound">
+      {visualizer && (
       <section>
         <h3 className="panel-label">Visualizer</h3>
         <Visualizer />
@@ -90,6 +92,7 @@ export function SoundView() {
           <p className="panel-note">The equalizer and visualizer aren’t supported by this browser. Playback is unaffected.</p>
         )}
       </section>
+      )}
 
       <section>
         <div className="panel-label-row">

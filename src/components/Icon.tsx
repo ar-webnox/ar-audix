@@ -130,6 +130,22 @@ const icons = {
     </>
   ),
   sliders: <path d="M5 4v16M12 4v16M19 4v16M3 14h4M10 8h4M17 15h4" />,
+  external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
+  download: <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />,
+  reset: <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" />,
+  monitor: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M8 20h8M12 16v4" />
+    </>
+  ),
   plus: <path d="M12 5v14M5 12h14" />,
   upload: (
     <>

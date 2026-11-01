@@ -19,18 +19,20 @@ export const EQ_PRESETS: { id: string; label: string; gains: number[] }[] = [
 export const MAX_CROSSFADE = 12;
 
 interface FxState {
-  /** A preset id, or 'custom' when the sliders were moved by hand. */
+  /** A preset id or 'custom' when the sliders were moved by hand. */
   preset: string;
   gains: number[];
   /** Seconds of overlap between songs; 0 turns crossfade off. */
   crossfade: number;
   /** Start the next song the instant this one ends (when crossfade is off). */
   gapless: boolean;
+  /** Show the live visualizer in the Sound panel and Now Playing. */
+  visualizer: boolean;
   /** 'off': audio plays directly; 'ready': routed through the equalizer graph. */
   graph: 'off' | 'ready' | 'unavailable';
 }
 
-type Saved = Pick<FxState, 'preset' | 'gains' | 'crossfade' | 'gapless'>;
+type Saved = Pick<FxState, 'preset' | 'gains' | 'crossfade' | 'gapless' | 'visualizer'>;
 const saved = loadJSON<Partial<Saved>>('fx', {});
 const savedGains =
   Array.isArray(saved.gains) && saved.gains.length === EQ_BANDS.length
@@ -42,12 +44,13 @@ export const fx = createStore<FxState>({
   gains: savedGains,
   crossfade: clamp(Number(saved.crossfade) || 0, 0, MAX_CROSSFADE),
   gapless: saved.gapless !== false,
+  visualizer: saved.visualizer !== false,
   graph: 'off',
 });
 
 fx.subscribe(() => {
-  const { preset, gains, crossfade, gapless } = fx.get();
-  saveJSON('fx', { preset, gains, crossfade, gapless } satisfies Saved);
+  const { preset, gains, crossfade, gapless, visualizer } = fx.get();
+  saveJSON('fx', { preset, gains, crossfade, gapless, visualizer } satisfies Saved);
 });
 
 /* ---------- Web Audio graph ----------
@@ -143,10 +146,20 @@ export function setBandGain(band: number, gain: number): void {
 
 export const setCrossfade = (seconds: number) => fx.set({ crossfade: clamp(Math.round(seconds), 0, MAX_CROSSFADE) });
 export const setGapless = (on: boolean) => fx.set({ gapless: on });
+export const setVisualizer = (on: boolean) => fx.set({ visualizer: on });
+
+/** Back to a flat equalizer, no crossfade, gapless on, visualizer on. */
+export function resetFx(): void {
+  crossfadeReset();
+  setPreset('normal');
+}
+function crossfadeReset(): void {
+  fx.set({ crossfade: 0, gapless: true, visualizer: true });
+}
 
 let spectrum = new Uint8Array(0);
 
-/** The current spectrum (0-255 per bin), or null when no analyser is running. */
+/** The current spectrum (0-255 per bin) or null when no analyser is running. */
 export function readSpectrum(): Uint8Array | null {
   if (!analyser || !ctx || ctx.state !== 'running') return null;
   if (spectrum.length !== analyser.frequencyBinCount) spectrum = new Uint8Array(analyser.frequencyBinCount);

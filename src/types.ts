@@ -32,6 +32,9 @@ export interface RecentEntry {
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type ThemeMode = 'dark' | 'light' | 'system';
+export type SortName = 'added' | 'title' | 'artist' | 'album' | 'duration';
+
 export type AccentName = 'sky' | 'amber' | 'rose' | 'mint' | 'violet' | 'custom';
 
 export interface Settings {
@@ -41,6 +44,18 @@ export interface Settings {
   /** True once the user picked an accent themselves, so the default can change without overriding it. */
   accentChosen?: boolean;
   autoSkip: boolean;
+  /** Colour scheme: fixed or following the operating system. */
+  theme: ThemeMode;
+  /** Turns off transitions and animations app-wide. */
+  reduceMotion: boolean;
+  /** Show embedded cover art. When off, every cover is the generated placeholder. */
+  showArtwork: boolean;
+  /** Read Title/Artist/Album from the files when importing. */
+  importTags: boolean;
+  /** Read embedded cover art when importing. */
+  importArtwork: boolean;
+  /** How All Songs is ordered when it opens. */
+  defaultSort: { key: SortName; ascending: boolean };
 }
 
 export interface AlbumGroup {

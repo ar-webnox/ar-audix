@@ -1,5 +1,6 @@
 import { useStore } from '../lib/createStore';
 import { useRoute, type RouteName } from '../lib/router';
+import { promptInstall, usePwa } from '../lib/pwa';
 import { library } from '../store/library';
 import { openImport, setSidebarOpen, ui } from '../store/ui';
 import { Icon, type IconName } from './Icon';
@@ -15,6 +16,7 @@ interface NavItem {
 
 export function Sidebar() {
   const route = useRoute();
+  const { canInstall } = usePwa();
   const open = useStore(ui, (s) => s.sidebarOpen);
   const songCount = useStore(library, (s) => s.tracks.length);
   const favoriteCount = useStore(library, (s) => s.favorites.length);
@@ -77,6 +79,12 @@ export function Sidebar() {
             <Icon name="upload" size={18} />
             Import music
           </button>
+          {canInstall && (
+            <button type="button" className="btn btn-secondary btn-block" onClick={() => void promptInstall()}>
+              <Icon name="download" size={18} />
+              Install app
+            </button>
+          )}
           {renderItem({ label: 'Settings', href: '#/settings', icon: 'settings', match: ['settings'] })}
         </div>
       </aside>

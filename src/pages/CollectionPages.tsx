@@ -34,7 +34,7 @@ export function FavoritesPage() {
         <EmptyState
           icon="heart"
           title="No favorites yet"
-          description="Tap the heart next to any song, or in the player, to keep it here."
+          description="Tap the heart next to any song or in the player, to keep it here."
         />
       ) : (
         <SongList tracks={tracks} />

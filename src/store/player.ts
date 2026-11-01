@@ -125,7 +125,7 @@ function stopCompletely(): void {
 
 /* ---------- gapless & crossfade ---------- */
 
-/** The song that will follow the current one, or null at the end of the queue (or on repeat one). */
+/** The song that will follow the current one or null at the end of the queue (or on repeat one). */
 function wantedNext(): string | null {
   const { order, index, repeat } = player.get();
   if (index < 0 || repeat === 'one' || order.length < 2) return null;

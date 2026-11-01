@@ -81,7 +81,8 @@ export function ImportDialog() {
       <ImportDropzone onStarted={closeImport} />
       <p className="modal-note">
         <Icon name="shield" size={15} /> Your music stays on this device. Files are copied into this browser’s local storage and are
-        never uploaded.
+        never uploaded. Your browser only lets AR AUDIX read what you choose and may ask for permission again whenever you
+        pick files or a folder.
       </p>
     </Modal>
   );

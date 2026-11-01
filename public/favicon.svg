@@ -1,9 +1,2 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="16" fill="#e7b86a"/>
-  <g stroke="#17110a" stroke-width="6" stroke-linecap="round" fill="none">
-    <path d="M18 48 29 22"/>
-    <path d="M46 48 35 22"/>
-    <path d="M25 39h14"/>
-  </g>
-  <circle cx="32" cy="14" r="3.6" fill="#17110a"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#0b0e13"/><g transform="translate(7.5 7.5) scale(0.72)"><defs><linearGradient id="m" gradientUnits="userSpaceOnUse" x1="0" y1="4" x2="72" y2="60"><stop offset="0" stop-color="#b9dcfa"/><stop offset=".4" stop-color="#7cb7ee"/><stop offset=".58" stop-color="#5a9bd9"/><stop offset=".8" stop-color="#7cb7ee"/><stop offset="1" stop-color="#b9dcfa"/></linearGradient></defs>
+<g fill="url(#m)"><path d="M2 60 27 4H39L14 60Z"/><path fill-rule="evenodd" d="M43 4H53L67 16V25L57 35H29.2L43 4ZM49 13H53L57 17V22L53 26H43.2L49 13Z"/><path d="M41 39H53.5L70 60H57.5Z"/></g></g></svg>

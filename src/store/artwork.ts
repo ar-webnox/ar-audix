@@ -11,7 +11,7 @@ const unusable = new Set<string>();
 const inflight = new Map<string, Promise<string | null>>();
 
 /**
- * Reads a file's embedded cover and stores it once. Returns the artwork id, or null when the
+ * Reads a file's embedded cover and stores it once. Returns the artwork id or null when the
  * file has no usable cover. Identical covers (same bytes, e.g. every song of an album) share one id.
  */
 export async function ensureArtwork(file: Blob): Promise<string | null> {

@@ -1,5 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import { hashString } from '../lib/format';
+import { useStore } from '../lib/createStore';
+import { library } from '../store/library';
 import { useArtworkUrl } from '../store/artwork';
 import { Icon } from './Icon';
 
@@ -18,7 +20,8 @@ interface ArtworkProps {
 
 /** The song's embedded cover when it has one, otherwise a deterministic, muted placeholder. */
 export function Artwork({ seed, size, round, initials, className, artId }: ArtworkProps) {
-  const url = useArtworkUrl(artId);
+  const show = useStore(library, (st) => st.settings.showArtwork);
+  const url = useArtworkUrl(show ? artId : undefined);
   const [broken, setBroken] = useState<string | null>(null);
   const cover = url !== null && broken !== url ? url : null;
   const hue = hashString(seed.toLowerCase()) % 360;

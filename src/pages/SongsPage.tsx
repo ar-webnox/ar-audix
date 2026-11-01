@@ -20,8 +20,9 @@ const SORT_OPTIONS: { key: SortKey; label: string; defaultAscending: boolean }[]
 export function SongsPage() {
   const tracks = useStore(library, (s) => s.tracks);
   const ready = useStore(library, (s) => s.ready);
-  const [sortKey, setSortKey] = useState<SortKey>('title');
-  const [ascending, setAscending] = useState(true);
+  const preferred = useStore(library, (s) => s.settings.defaultSort);
+  const [sortKey, setSortKey] = useState<SortKey>(preferred.key);
+  const [ascending, setAscending] = useState(preferred.ascending);
   const [filter, setFilter] = useState('');
   const sorted = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -99,7 +100,7 @@ export function SongsPage() {
         {filter.trim() !== '' && <span className="toolbar-note">{plural(sorted.length, 'match')}</span>}
       </div>
       {sorted.length === 0 ? (
-        <EmptyState icon="search" title="No matching songs" description="Try a different word, or clear the filter." />
+        <EmptyState icon="search" title="No matching songs" description="Try a different word or clear the filter." />
       ) : (
         <SongList tracks={sorted} />
       )}
