@@ -1,8 +1,8 @@
 import { useStore } from '../lib/createStore';
 import { useRoute, type RouteName } from '../lib/router';
-import { promptInstall, usePwa } from '../lib/pwa';
+import { installGuide, isTouchDevice, promptInstall, usePwa } from '../lib/pwa';
 import { library } from '../store/library';
-import { openImport, setSidebarOpen, ui } from '../store/ui';
+import { askConfirm, openImport, setSidebarOpen, ui } from '../store/ui';
 import { Icon, type IconName } from './Icon';
 import { Logo } from './Logo';
 
@@ -16,7 +16,9 @@ interface NavItem {
 
 export function Sidebar() {
   const route = useRoute();
-  const { canInstall } = usePwa();
+  const { canInstall, installed, ios } = usePwa();
+  // Without a browser prompt (iOS Safari or Chrome before it offers one) phones still get a button that explains how.
+  const showGuide = !installed && !canInstall && (ios || isTouchDevice());
   const open = useStore(ui, (s) => s.sidebarOpen);
   const songCount = useStore(library, (s) => s.tracks.length);
   const favoriteCount = useStore(library, (s) => s.favorites.length);
@@ -79,8 +81,19 @@ export function Sidebar() {
             <Icon name="upload" size={18} />
             Import music
           </button>
-          {canInstall && (
-            <button type="button" className="btn btn-secondary btn-block" onClick={() => void promptInstall()}>
+          {!installed && (canInstall || showGuide) && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-block"
+              onClick={() => {
+                setSidebarOpen(false);
+                if (canInstall) void promptInstall();
+                else {
+                  const g = installGuide(ios);
+                  askConfirm({ title: g.title, message: g.message, confirmLabel: 'Got it', onConfirm: () => undefined });
+                }
+              }}
+            >
               <Icon name="download" size={18} />
               Install app
             </button>

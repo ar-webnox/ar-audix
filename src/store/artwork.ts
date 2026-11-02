@@ -119,3 +119,82 @@ export async function recompressArtwork(): Promise<{ count: number; saved: numbe
   }
   return { count, saved };
 }
+
+/* ---------- ambient colour for Now Playing ---------- */
+
+export interface Tint {
+  dark: string;
+  light: string;
+}
+const tints = new Map<string, Tint>();
+
+/** One 8x8 downscale of a thumbnail gives its overall colour; saturated pixels count more than grey ones. */
+function tintOf(img: HTMLImageElement): Tint | null {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 8;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, 8, 8);
+    const px = ctx.getImageData(0, 0, 8, 8).data;
+    let r = 0, g = 0, b = 0, w = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      const max = Math.max(px[i], px[i + 1], px[i + 2]);
+      const min = Math.min(px[i], px[i + 1], px[i + 2]);
+      const weight = 0.15 + (max === 0 ? 0 : (max - min) / max);
+      r += px[i] * weight; g += px[i + 1] * weight; b += px[i + 2] * weight; w += weight;
+    }
+    return fromRgb(r / w, g / w, b / w);
+  } catch {
+    return null;
+  }
+}
+
+/** Dark theme: a muted, fairly dark version. Light theme: a soft pastel version. Text stays readable on both. */
+function fromRgb(r: number, g: number, b: number): Tint {
+  const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255;
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max * 255 === r) h = ((g - b) / 255 / d) % 6;
+    else if (max * 255 === g) h = (b - r) / 255 / d + 2;
+    else h = (r - g) / 255 / d + 4;
+  }
+  const hue = Math.round(((h * 60) + 360) % 360);
+  const sat = Math.round(Math.min(0.75, Math.max(0.25, s)) * 100);
+  return { dark: `hsl(${hue} ${sat}% ${Math.round(Math.min(0.46, Math.max(0.26, l)) * 100)}%)`, light: `hsl(${hue} ${Math.min(sat, 70)}% 72%)` };
+}
+
+/** Tint for a placeholder cover, matching the generated placeholder's hue. */
+export function placeholderTint(hue: number): Tint {
+  return { dark: `hsl(${hue} 32% 30%)`, light: `hsl(${hue} 45% 78%)` };
+}
+
+/**
+ * The ambient colour for a cover. The previous colour stays until the next one is ready, so changing
+ * songs fades from one colour to the other instead of flashing.
+ */
+export function useArtworkTint(id?: string | null): Tint | null {
+  const url = useArtworkUrl(id);
+  const [tint, setTint] = useState<Tint | null>(null);
+  useEffect(() => {
+    if (!id) return setTint(null);
+    const known = tints.get(id);
+    if (known) return setTint(known);
+    if (!url) return;
+    let live = true;
+    const img = new Image();
+    img.onload = () => {
+      const t = tintOf(img);
+      if (t) tints.set(id, t);
+      if (live) setTint(t);
+    };
+    img.src = url;
+    return () => {
+      live = false;
+    };
+  }, [id, url]);
+  return tint;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useStore } from '../lib/createStore';
 import { albumKeyOf, artistKeyOf } from '../lib/derive';
 import { paths } from '../lib/router';
@@ -6,6 +6,8 @@ import { PLAYBACK_RATES, cycleRepeat, next, player, previous, setRate, setVolume
 import { ensureGraph, fx } from '../store/fx';
 import { toggleFavorite, trackById, useFavoriteSet } from '../store/library';
 import { closeNowPlaying, openPanel, ui } from '../store/ui';
+import { hashString } from '../lib/format';
+import { placeholderTint, useArtworkTint } from '../store/artwork';
 import { Artwork } from './Artwork';
 import { Icon } from './Icon';
 import { SeekBar } from './PlayerBar';
@@ -25,6 +27,7 @@ export default function NowPlaying() {
   const visualizer = useStore(fx, (s) => s.visualizer);
   const favorites = useFavoriteSet();
   const track = currentId ? trackById(currentId) : undefined;
+  const art = useArtworkTint(track?.artId);
   const root = useRef<HTMLDivElement>(null);
   const touchY = useRef<number | null>(null);
 
@@ -45,6 +48,7 @@ export default function NowPlaying() {
 
   if (!track) return null;
   const level = muted ? 0 : volume;
+  const tint = art ?? placeholderTint(hashString(track.album.toLowerCase()) % 360);
   const nextRate = () => setRate(PLAYBACK_RATES[(PLAYBACK_RATES.indexOf(rate) + 1) % PLAYBACK_RATES.length]);
   const open = (panel: 'queue' | 'sound' | 'lyrics') => {
     closeNowPlaying();
@@ -68,6 +72,7 @@ export default function NowPlaying() {
         if (start !== null && start < 160 && e.changedTouches[0].clientY - start > 90) closeNowPlaying();
       }}
     >
+      <div className="np-ambient" aria-hidden="true" style={{ ['--np-d']: tint.dark, ['--np-l']: tint.light } as CSSProperties} />
       <header className="np-head">
         <button type="button" className="icon-btn" onClick={closeNowPlaying} aria-label="Close Now Playing">
           <Icon name="chevronDown" size={24} />

@@ -638,6 +638,10 @@ kbd { font: inherit; font-size: 12px; }
 
 .nowplaying { position: fixed; inset: 0; height: 100dvh; z-index: 80; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); outline: none; padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); animation: np-in 0.25s var(--ease); }
 @keyframes np-in { from { transform: translateY(24px); opacity: 0; } }
+.nowplaying { isolation: isolate; }
+/* Ambient colour from the cover: one flat layer faded out with a mask (no blur, no filters), cross-fading when the colour changes. */
+.np-ambient { position: fixed; inset: 0; z-index: -1; pointer-events: none; contain: strict; background-color: var(--np-d); opacity: 0.6; transition: background-color 0.7s ease; -webkit-mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.78) 50%, rgb(0 0 0 / 0.5) 100%); mask-image: linear-gradient(180deg, #000 0%, rgb(0 0 0 / 0.78) 50%, rgb(0 0 0 / 0.5) 100%); }
+[data-theme='light'] .np-ambient { background-color: var(--np-l); opacity: 0.55; }
 .np-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; flex: none; }
 .np-head-title { font-size: 12px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2); }
 .np-body { flex: 1 0 auto; width: min(520px, 100%); margin: 0 auto; padding: 0 24px 16px; display: flex; flex-direction: column; gap: clamp(10px, 2.2dvh, 20px); }
