@@ -1,6 +1,6 @@
 # AR AUDIX
 
-A premium local music player for the browser. Your music stays on your device: files are copied into the browser's own storage (IndexedDB) and are never uploaded anywhere.
+A premium local music player for the browser. Your music stays on your device and is never uploaded anywhere. In Chrome and Edge on a computer the songs stay where they are and AR AUDIX only stores a reference to them; in other browsers they are copied into the browser's own storage (IndexedDB).
 
 ## Run it
 
@@ -25,7 +25,11 @@ The app shell works offline after the first visit. The service worker caches onl
 
 ## Browser limitations
 
-- AR AUDIX cannot read your folders on its own. You choose files or a folder (or drag them in) and they are **copied into the browser's storage**. Nothing is re-scanned later and permissions are never bypassed.
+- AR AUDIX cannot read your folders on its own. You choose files or a folder (or drag them in); permissions are never bypassed.
+- **Chrome / Edge on a computer** (File System Access API): songs stay in their original place and only a reference is stored, so the library uses almost no storage. After you close and reopen the app the browser may ask for permission to read the music again (one prompt per picked folder; Settings → Library → *Allow access*). If you move or delete a file, that song can't play until you pick it again.
+- **Other browsers** (Firefox, Safari, Chrome on Android/iOS) cannot keep a reference, so each imported song is **copied into the browser's storage**. That uses as much space as the songs themselves.
+- Songs already stored as copies can be switched to references: Settings → Library → Storage → *Free up space*, then pick the folder they came from. Copies are only removed for songs whose original was found and is readable.
+- The storage figure shown is the browser's own estimate of this site's usage and allowance. AR AUDIX does not set a limit; the allowance depends on the browser and the device's free space and can change.
 - Browsers may clear site data under storage pressure or when you clear browsing data. Back up important music elsewhere.
 - Firefox and Safari do not offer a folder picker the way Chrome does; folder selection uses `webkitdirectory` and dragging a folder in is the fallback.
 - Safari does not fire an install prompt and may limit background audio and storage.

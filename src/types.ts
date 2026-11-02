@@ -15,6 +15,10 @@ export interface Track {
   artId?: string | null;
   /** True once the file's embedded text tags have been read (and used when present). */
   tagged?: boolean;
+  /** 'link': the audio stays where it is on the device and only a handle is stored. Missing: a copy is stored in the browser. */
+  src?: 'link';
+  /** Title and Artist as embedded in the file, read once at import. Lets lists show them without reopening the file (which a linked song may need permission for). */
+  embedded?: { title?: string; artist?: string };
 }
 
 export interface Playlist {
@@ -54,6 +58,8 @@ export interface Settings {
   importTags: boolean;
   /** Read embedded cover art when importing. */
   importArtwork: boolean;
+  /** Where the browser supports it, keep songs in their original place instead of copying them into the browser. */
+  linkFiles: boolean;
   /** How All Songs is ordered when it opens. */
   defaultSort: { key: SortName; ascending: boolean };
 }

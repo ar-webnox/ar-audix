@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { candidatesFromDataTransfer } from '../lib/audioFiles';
+import { dropResolver } from '../lib/fsa';
 import { useStore } from '../lib/createStore';
 import { navigate, paths } from '../lib/router';
 import { plural } from '../lib/format';
@@ -117,7 +118,7 @@ export function DropOverlay() {
       e.preventDefault();
       depth.current = 0;
       ui.set({ dragging: false, importOpen: false });
-      if (e.dataTransfer) void candidatesFromDataTransfer(e.dataTransfer).then(importCandidates);
+      if (e.dataTransfer) void candidatesFromDataTransfer(e.dataTransfer, library.get().settings.linkFiles ? dropResolver() : null).then(importCandidates);
     };
     window.addEventListener('dragenter', onEnter);
     window.addEventListener('dragover', onOver);

@@ -1,7 +1,13 @@
+import type { DirHandleLike, FileHandleLike } from './fsa';
+
 /** A file picked or dropped by the user, with its path relative to the picked folder. */
 export interface Candidate {
   file: File;
   path: string;
+  /** Set when the file was picked with a picker that can keep a reference to the original (no copy needed). */
+  handle?: FileHandleLike;
+  /** The folder the file was found in, when a whole folder was picked. One permission covers all of its files. */
+  root?: { id: string; handle: DirHandleLike };
 }
 
 export const AUDIO_EXTENSIONS = [
@@ -69,15 +75,19 @@ async function walk(entry: FileSystemEntry, out: Candidate[]): Promise<void> {
   }
 }
 
+/** Returns a promise (started synchronously) with linked candidates for a dropped item or null to use the plain path. */
+export type DropResolver = (item: DataTransferItem) => Promise<Candidate[] | null> | null;
+
 /** Collects files (including whole folders) from a drop event. */
-export async function candidatesFromDataTransfer(dt: DataTransfer): Promise<Candidate[]> {
+export async function candidatesFromDataTransfer(dt: DataTransfer, resolve?: DropResolver | null): Promise<Candidate[]> {
   // Entries must be grabbed synchronously, before the event handler yields.
-  const entries: FileSystemEntry[] = [];
+  const entries: { entry: FileSystemEntry; linked: Promise<Candidate[] | null> | null }[] = [];
   const loose: File[] = [];
   for (const item of Array.from(dt.items ?? [])) {
     if (item.kind !== 'file') continue;
+    const linked = resolve ? resolve(item) : null;
     const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
-    if (entry) entries.push(entry);
+    if (entry) entries.push({ entry, linked });
     else {
       const file = item.getAsFile();
       if (file) loose.push(file);
@@ -86,7 +96,11 @@ export async function candidatesFromDataTransfer(dt: DataTransfer): Promise<Cand
   if (entries.length === 0 && loose.length === 0) loose.push(...Array.from(dt.files ?? []));
 
   const out: Candidate[] = candidatesFromFiles(loose);
-  for (const entry of entries) await walk(entry, out);
+  for (const { entry, linked } of entries) {
+    const found = linked ? await linked : null;
+    if (found) out.push(...found);
+    else await walk(entry, out);
+  }
   return out;
 }
 

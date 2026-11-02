@@ -79,7 +79,9 @@ export default function NowPlaying() {
       </header>
 
       <div className="np-body">
-        <Artwork seed={track.album} className="np-art" artId={track.artId} />
+        <div className="np-art-wrap">
+          <Artwork seed={track.album} className="np-art" artId={track.artId} />
+        </div>
         <div className="np-meta">
           <div className="np-titles">
             <h2 className="np-title" title={track.title}>

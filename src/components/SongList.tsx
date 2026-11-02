@@ -30,7 +30,7 @@ interface RowProps {
 
 /** What the list shows: the embedded Title, else the whole file name; the embedded Artist beneath. */
 function useRowLabel(track: Track): { title: string; artist: string } {
-  const tags = useTags(track.id);
+  const tags = useTags(track.id, track.embedded);
   const base = track.fileName.replace(/\.[^.]+$/, '').trim();
   // an artist that was only guessed by splitting "A - B" in the file name is not real artist data
   const guessed = base.toLowerCase().includes(`${track.artist} - ${track.title}`.toLowerCase());

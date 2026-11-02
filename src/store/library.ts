@@ -1,14 +1,16 @@
 import { useMemo } from 'react';
 import { createStore, useStore } from '../lib/createStore';
 import { db, onDbBlocked } from '../lib/db';
+import { linkingSupported } from '../lib/fsa';
+import { storageEstimate } from '../lib/storageInfo';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { inferMeta } from '../lib/metadata';
 import { readTags, type Tags } from '../lib/tags';
 import { extensionOf, isAudioFile, readDuration, type Candidate } from '../lib/audioFiles';
 import { buildIndex, type LibraryIndex } from '../lib/derive';
-import { hashString, plural } from '../lib/format';
+import { formatBytes, hashString, plural } from '../lib/format';
 import { applyAppearance } from '../lib/theme';
-import { ensureArtwork, forgetArtwork } from './artwork';
+import { ensureArtwork, forgetArtwork, recompressArtwork } from './artwork';
 import { toast } from './ui';
 import type { AccentName, Playlist, RecentEntry, Settings, SortName, Track } from '../types';
 
@@ -48,6 +50,7 @@ export const defaultSettings: Settings = {
   showArtwork: true,
   importTags: true,
   importArtwork: true,
+  linkFiles: true,
   defaultSort: { key: 'title', ascending: true },
 };
 const SORT_KEYS: SortName[] = ['added', 'title', 'artist', 'album', 'duration'];
@@ -77,6 +80,7 @@ function sanitizeSettings(raw: Partial<Settings> | undefined): Settings {
     showArtwork: stored.showArtwork !== false,
     importTags: stored.importTags !== false,
     importArtwork: stored.importArtwork !== false,
+    linkFiles: stored.linkFiles !== false,
     defaultSort:
       stored.defaultSort && SORT_KEYS.includes(stored.defaultSort.key)
         ? { key: stored.defaultSort.key, ascending: stored.defaultSort.ascending !== false }
@@ -200,21 +204,75 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
     return;
   }
 
-  const known = new Set(library.get().tracks.map((t) => t.id));
+  const settings = library.get().settings;
+  const link = settings.linkFiles && linkingSupported();
+  const existing = new Map(library.get().tracks.map((t) => [t.id, t]));
+  const known = new Set(existing.keys());
   const fresh: { c: Candidate; id: string }[] = [];
+  const relink: { c: Candidate; id: string }[] = [];
   let duplicates = 0;
   for (const c of audio) {
     const id = trackIdFor(c.file);
-    if (known.has(id)) duplicates++;
-    else {
+    if (known.has(id)) {
+      duplicates++;
+      // The same song picked again with a picker that keeps the original in place: if we hold a copy,
+      // it can be replaced by a link (see "Free up space" in Settings). Otherwise the link is just refreshed.
+      if (link && c.handle && existing.get(id)) relink.push({ c, id });
+    } else {
       known.add(id);
       fresh.push({ c, id });
     }
   }
+
+  // Songs that will be copied into the browser must fit in what the browser says is left.
+  const copyBytes = fresh.reduce((n, f) => n + (link && f.c.handle ? 0 : f.c.file.size), 0);
+  if (copyBytes > 0) {
+    const est = await storageEstimate();
+    if (est && est.quota > 0 && copyBytes > est.quota - est.usage) {
+      toast(
+        `Not enough browser storage for these songs (${formatBytes(copyBytes)} needed, about ${formatBytes(Math.max(0, est.quota - est.usage))} left). ` +
+          (linkingSupported() ? 'Turn on “Keep songs in their original place” in Settings or remove some songs.' : 'Remove some songs first.'),
+        'error',
+      );
+      return;
+    }
+  }
+
+  let freed = 0;
+  let relinked = 0;
+  if (relink.length > 0) {
+    library.set({ importing: { active: true, done: 0, total: relink.length + fresh.length } });
+    const roots = new Set<string>();
+    for (const { c, id } of relink) {
+      if (c.root && !roots.has(c.root.id)) {
+        roots.add(c.root.id);
+        await db.saveRoot(c.root.id, c.root.handle);
+      }
+      const hadCopy = existing.get(id)?.src !== 'link';
+      const bytes = await db.adoptLink(id, c.handle!, c.root?.id);
+      if (hadCopy && bytes > 0) {
+        freed += bytes;
+        relinked++;
+        // Remember the embedded Title and Artist, since the song will no longer be read from a stored copy.
+        const read = await readTags(c.file).catch((): Tags => ({}));
+        const embedded = { title: read.title, artist: read.artist };
+        library.set((s) => ({ tracks: s.tracks.map((t) => (t.id === id ? { ...t, src: 'link' as const, embedded } : t)) }));
+        void db.updateTracks(library.get().tracks.filter((t) => t.id === id));
+      }
+    }
+  }
   if (fresh.length === 0) {
-    toast(`Already in your library: ${plural(duplicates, 'song')} skipped.`);
+    library.set({ importing: { active: false, done: 0, total: 0 } });
+    toast(
+      relinked > 0
+        ? `Linked ${plural(relinked, 'song')} to the original files and freed ${formatBytes(freed)}.`
+        : `Already in your library: ${plural(duplicates, 'song')} skipped.`,
+      relinked > 0 ? 'success' : undefined,
+    );
     return;
   }
+  const savedRoots = new Set<string>();
+  let quotaHit = false;
 
   library.set({ importing: { active: true, done: 0, total: fresh.length } });
   let pending: Track[] = [];
@@ -242,7 +300,9 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
         const { importArtwork, importTags } = library.get().settings;
         const artId = importArtwork ? await ensureArtwork(c.file).catch(() => null) : null;
         const meta = inferMeta(c.path);
-        const tags = importTags ? await readTags(c.file) : {};
+        // Tags are read for display even when "read song info" is off, so a linked song never has to be reopened just to be listed.
+        const read = importTags || (link && c.handle) ? await readTags(c.file) : null;
+        const tags = importTags && read ? read : {};
         const track: Track = {
           id,
           title: tags.title ?? meta.title,
@@ -257,8 +317,22 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
           mime: c.file.type,
           addedAt: addedAt + added,
           artId,
+          embedded: read ? { title: read.title, artist: read.artist } : undefined,
         };
-        if (!(await db.saveTrack(track, c.file))) unsaved++;
+        let stored = false;
+        if (link && c.handle) {
+          if (c.root && !savedRoots.has(c.root.id)) {
+            savedRoots.add(c.root.id);
+            await db.saveRoot(c.root.id, c.root.handle);
+          }
+          stored = await db.saveLinked(track, c.handle, c.root?.id);
+          if (stored) track.src = 'link';
+        }
+        if (!stored) {
+          const res = await db.saveTrack(track, c.file);
+          if (res === 'quota') quotaHit = true;
+          if (res !== 'ok') unsaved++;
+        }
         pending.push(track);
         added++;
         if (pending.length >= 25) flush();
@@ -274,6 +348,7 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
 
   const parts: string[] = [];
   if (added) parts.push(`Added ${plural(added, 'song')}`);
+  if (relinked) parts.push(`${plural(relinked, 'existing song')} linked, ${formatBytes(freed)} freed`);
   if (duplicates) parts.push(`${plural(duplicates, 'duplicate')} skipped`);
   if (failed) parts.push(`${plural(failed, 'file')} couldn’t be read`);
   if (ignored) parts.push(`${plural(ignored, 'non-audio file')} ignored`);
@@ -282,7 +357,9 @@ export async function importCandidates(candidates: Candidate[]): Promise<void> {
   if (unsaved > 0) {
     library.set({ persistent: false });
     toast(
-      'Your browser wouldn’t store some files, so they will be gone after you close this tab.',
+      quotaHit
+        ? 'Your device ran out of storage space, so some songs will be gone after you close this tab. Free up space or keep songs in their original place (Settings → Library).'
+        : 'Your browser wouldn’t store some files, so they will be gone after you close this tab.',
       'error',
     );
   }
@@ -360,7 +437,8 @@ async function backfillArtwork(): Promise<void> {
       const id = todo[cursor++];
       if (!trackById(id)) continue;
       const file = await db.getFile(id);
-      const artId = file ? await ensureArtwork(file).catch(() => null) : null;
+      if (!file) continue; // unreadable right now (for example, permission needed): try again next time
+      const artId = await ensureArtwork(file).catch(() => null);
       found.set(id, artId);
       if (found.size >= 25) flush();
     }
@@ -399,7 +477,8 @@ async function backfillTags(): Promise<void> {
       const id = todo[cursor++];
       if (!trackById(id)) continue;
       const file = await db.getFile(id);
-      found.set(id, file ? await readTags(file) : {});
+      if (!file) continue; // unreadable right now: try again next time
+      found.set(id, await readTags(file));
       if (found.size >= 25) flush();
     }
   };
@@ -501,4 +580,33 @@ if (typeof matchMedia === 'function') {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
     if (library.get().settings.theme === 'system') applyAppearance(library.get().settings);
   });
+}
+
+/* ---------- storage maintenance ---------- */
+
+export interface OptimizeResult {
+  orphanFiles: number;
+  orphanArtwork: number;
+  artworkRecompressed: number;
+  bytesFreed: number;
+}
+
+/**
+ * Safe clean-up: deletes stored data that no song refers to and re-encodes stored cover thumbnails more
+ * compactly (only when that makes them clearly smaller). Songs, playlists, favorites and settings are never changed.
+ */
+export async function optimizeStorage(): Promise<OptimizeResult> {
+  if (library.get().importing.active) throw new Error('Wait for the import to finish first.');
+  const tracks = library.get().tracks;
+  const orphans = await db.removeOrphans(
+    new Set(tracks.map((t) => t.id)),
+    new Set(tracks.map((t) => t.artId).filter((id): id is string => !!id)),
+  );
+  const art = await recompressArtwork();
+  return {
+    orphanFiles: orphans.files,
+    orphanArtwork: orphans.artwork,
+    artworkRecompressed: art.count,
+    bytesFreed: orphans.bytes + art.saved,
+  };
 }

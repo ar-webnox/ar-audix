@@ -24,9 +24,10 @@ function loadTags(id: string): Promise<Tags> {
 }
 
 /** The track's embedded Title/Artist or null while they are still being read. */
-export function useTags(id: string): Tags | null {
-  const [tags, setTags] = useState<Tags | null>(() => cache.get(id) ?? null);
+export function useTags(id: string, stored?: Tags): Tags | null {
+  const [tags, setTags] = useState<Tags | null>(() => stored ?? cache.get(id) ?? null);
   useEffect(() => {
+    if (stored) return; // already known from the library: no need to open the file
     const known = cache.get(id);
     if (known) {
       setTags(known);
@@ -38,6 +39,6 @@ export function useTags(id: string): Tags | null {
     return () => {
       live = false;
     };
-  }, [id]);
-  return tags;
+  }, [id, stored]);
+  return stored ?? tags;
 }

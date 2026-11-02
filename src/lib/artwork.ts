@@ -406,10 +406,42 @@ export function hashBytes(b: Uint8Array): string {
 }
 
 const THUMB_MAX = 512;
+/** Covers at or below this size (and already small in pixels) are kept as they are. */
+const KEEP_AS_IS = 24_000;
+
+async function encode(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<Blob | null> {
+  const toBlob = (type: string, quality: number): Promise<Blob | null> =>
+    'convertToBlob' in canvas
+      ? canvas.convertToBlob({ type, quality }).catch(() => null)
+      : new Promise((resolve) => (canvas as HTMLCanvasElement).toBlob(resolve, type, quality));
+  // WebP is roughly a quarter smaller than JPEG at the same visual quality. Browsers that cannot
+  // encode it silently return another type, so check what came back and fall back to JPEG.
+  const webp = await toBlob('image/webp', 0.8);
+  if (webp && webp.type === 'image/webp') return webp;
+  return toBlob('image/jpeg', 0.86);
+}
+
+/** Scales a decoded picture to at most THUMB_MAX pixels and encodes it compactly. */
+export async function encodeBitmap(bitmap: ImageBitmap): Promise<Blob | null> {
+  const { width, height } = bitmap;
+  if (width < 1 || height < 1) return null;
+  const scale = Math.min(1, THUMB_MAX / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * scale));
+  const h = Math.max(1, Math.round(height * scale));
+  const canvas: OffscreenCanvas | HTMLCanvasElement =
+    typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (!ctx) return null;
+  ctx.fillStyle = '#1e2228';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  return encode(canvas);
+}
 
 /**
- * Decodes the picture and returns a compact version for storage (max 512px). Pictures that are
- * already small are kept byte-for-byte. Returns null when the browser cannot decode the image.
+ * Decodes the picture and returns a compact version for storage (max 512px, WebP where the browser
+ * can encode it). Pictures that are already tiny are kept byte-for-byte and the original is also
+ * kept when re-encoding would not make it smaller. Returns null when the browser cannot decode the image.
  */
 export async function makeThumbnail(bytes: Uint8Array, mime: string): Promise<Blob | null> {
   const source = new Blob([bytes as BlobPart], { type: mime });
@@ -420,31 +452,13 @@ export async function makeThumbnail(bytes: Uint8Array, mime: string): Promise<Bl
     return null;
   }
   try {
-    const { width, height } = bitmap;
-    if (width < 1 || height < 1) return null;
-    const scale = Math.min(1, THUMB_MAX / Math.max(width, height));
-    if (scale === 1 && source.size <= 400_000 && (mime === 'image/jpeg' || mime === 'image/png')) return source;
-
-    const w = Math.max(1, Math.round(width * scale));
-    const h = Math.max(1, Math.round(height * scale));
-    if (typeof OffscreenCanvas !== 'undefined') {
-      const canvas = new OffscreenCanvas(w, h);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return null;
-      ctx.fillStyle = '#1e2228';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(bitmap, 0, 0, w, h);
-      return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
-    }
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.fillStyle = '#1e2228';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.86));
+    const small = Math.max(bitmap.width, bitmap.height) <= THUMB_MAX;
+    const keepable = mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp';
+    if (small && keepable && source.size <= KEEP_AS_IS) return source;
+    const encoded = await encodeBitmap(bitmap);
+    if (!encoded) return null;
+    if (small && keepable && source.size <= encoded.size) return source;
+    return encoded;
   } catch {
     return null;
   } finally {

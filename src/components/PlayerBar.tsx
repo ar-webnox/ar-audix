@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { useStore } from '../lib/createStore';
 import { formatTime } from '../lib/format';
 import { albumKeyOf, artistKeyOf } from '../lib/derive';
@@ -151,6 +151,9 @@ function SpeedControl() {
   );
 }
 
+const INTERACTIVE = 'button, a, input, select, textarea, label, [role="slider"], [role="menu"], [role="menuitem"], [data-popover-trigger], .slider';
+const MOBILE_LAYOUT = '(max-width: 860px)';
+
 export function PlayerBar() {
   const currentId = useStore(player, (s) => s.currentId);
   const playing = useStore(player, (s) => s.playing);
@@ -165,8 +168,44 @@ export function PlayerBar() {
 
   const idle = !track;
 
+  // On small screens the mini player is as tall as its content. Publish that height so toasts, the
+  // import progress and the side panel sit exactly above it.
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const mq = window.matchMedia(MOBILE_LAYOUT);
+    const root = document.documentElement;
+    const apply = () => {
+      if (mq.matches) root.style.setProperty('--player-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+      else root.style.removeProperty('--player-h');
+    };
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    mq.addEventListener('change', apply);
+    apply();
+    return () => {
+      ro.disconnect();
+      mq.removeEventListener('change', apply);
+      root.style.removeProperty('--player-h');
+    };
+  }, []);
+
+  // On small screens the whole mini player opens Now Playing, except its own controls. A press that started
+  // on a control (for example a seek drag that ends elsewhere) never counts.
+  const pressedControl = useRef(false);
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    pressedControl.current = !!(e.target as Element).closest(INTERACTIVE);
+  };
+  const onBarClick = (e: MouseEvent<HTMLElement>) => {
+    const onControl = pressedControl.current || !!(e.target as Element).closest(INTERACTIVE);
+    pressedControl.current = false;
+    if (!track || onControl || !window.matchMedia(MOBILE_LAYOUT).matches) return;
+    openNowPlaying();
+  };
+
   return (
-    <footer className="player" aria-label="Music player">
+    <footer ref={bar} className={`player${track ? ' player-tappable' : ''}`} aria-label="Music player" onPointerDown={onPointerDown} onClick={onBarClick}>
       <div className="player-info">
         {track ? (
           <>

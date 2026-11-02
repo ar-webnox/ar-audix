@@ -486,6 +486,7 @@ kbd { font: inherit; font-size: 12px; }
 .custom-color-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
 .custom-chip { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--accent-ink); box-shadow: inset 0 0 0 2px var(--surface-2); background: conic-gradient(#ee7d77, #e7b86a, #6fd0b0, #7cb7ee, #a996f0, #ee7d77); }
 .custom-hex { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: 0.02em; }
+.setting-row + .setting-row { margin-top: 16px; }
 .setting-name { font-weight: 600; }
 .setting-help { color: var(--text-3); font-size: 13px; margin-top: 2px; max-width: 420px; }
 .swatches { display: flex; gap: 10px; flex: none; }
@@ -500,6 +501,17 @@ kbd { font: inherit; font-size: 12px; }
 .kv dt { color: var(--text-2); }
 .kv dd { margin: 0; text-align: right; }
 .warn { color: var(--danger); }
+.storage { margin-top: 6px; }
+.storage .settings-sub { margin-top: 22px; }
+.storage + .setting-actions { margin-top: 22px; }
+.storage-note { max-width: none; margin: 10px 0 0; }
+.notice { padding: 10px 14px; border-radius: var(--radius-s); font-size: 13px; margin-bottom: 12px; border: 1px solid var(--border-strong); background: var(--surface-2); }
+.notice-warn { border-color: #c98a1a; }
+.notice-danger { border-color: var(--danger); }
+.meter { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin: 4px 0 6px; }
+.meter span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.meter .meter-low { background: #c98a1a; }
+.meter .meter-critical { background: var(--danger); }
 .setting-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 .shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 28px; margin: 0; }
 .shortcuts > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
@@ -515,8 +527,9 @@ kbd { font: inherit; font-size: 12px; }
 }
 
 @media (max-width: 860px) {
-  :root { --player-h: 128px; }
-  .app { grid-template-columns: minmax(0, 1fr); }
+  /* The mini player is as tall as its content (see PlayerBar, which publishes the real height as --player-h). */
+  :root { --player-h: 160px; }
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .workspace { grid-column: 1; }
   .sidebar {
     position: fixed; z-index: 70; top: 0; bottom: 0; left: 0; width: min(300px, 86vw);
@@ -544,9 +557,12 @@ kbd { font: inherit; font-size: 12px; }
   .song-album, .song-head-album { display: none; }
 
   .player {
-    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 4px 8px; padding: 10px calc(14px + var(--safe-r)) calc(8px + var(--safe-b)) calc(14px + var(--safe-l));
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 4px 8px; padding: 12px calc(14px + var(--safe-r)) calc(12px + var(--safe-b)) calc(14px + var(--safe-l));
     align-content: center;
   }
+  .player-tappable { cursor: pointer; }
+  /* A tap on the song text opens Now Playing; touch screens would otherwise snap it to the tiny artist and album links. */
+  .player-sub a, .player-album a { pointer-events: none; }
   .player-info { grid-column: 1; grid-row: 1; }
   .player-art, .player-art-empty { width: 44px !important; height: 44px !important; }
   .player-extra { grid-column: 2; grid-row: 1; gap: 0; }
@@ -555,8 +571,8 @@ kbd { font: inherit; font-size: 12px; }
   .transport { gap: 6px; }
   .seek-row { max-width: none; }
   .side-panel { width: 100vw; border-left: 0; }
-  .toasts { bottom: calc(var(--player-h) + var(--safe-b) + 12px); }
-  .import-progress { right: 12px; left: 12px; width: auto; bottom: calc(var(--player-h) + var(--safe-b) + 12px); }
+  .toasts { bottom: calc(var(--player-h) + 12px); }
+  .import-progress { right: 12px; left: 12px; width: auto; bottom: calc(var(--player-h) + 12px); }
 }
 
 @media (max-width: 480px) {
@@ -620,12 +636,15 @@ kbd { font: inherit; font-size: 12px; }
 .player-open { flex: none; display: block; border-radius: 8px; }
 .player-open:hover .player-art { filter: brightness(1.1); }
 
-.nowplaying { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); outline: none; padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); animation: np-in 0.25s var(--ease); }
+.nowplaying { position: fixed; inset: 0; height: 100dvh; z-index: 80; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); outline: none; padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l); animation: np-in 0.25s var(--ease); }
 @keyframes np-in { from { transform: translateY(24px); opacity: 0; } }
 .np-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; flex: none; }
 .np-head-title { font-size: 12px; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2); }
-.np-body { width: min(520px, 100%); margin: 0 auto; padding: 4px 24px 28px; display: flex; flex-direction: column; gap: 20px; }
-.np-art { width: min(100%, 44vh); margin: 0 auto; border-radius: var(--radius); box-shadow: var(--shadow); }
+.np-body { flex: 1 0 auto; width: min(520px, 100%); margin: 0 auto; padding: 0 24px 16px; display: flex; flex-direction: column; gap: clamp(10px, 2.2dvh, 20px); }
+/* The cover takes whatever height is left and stays square, so everything fits without scrolling. */
+.np-art-wrap { flex: 1 1 0; min-height: 96px; display: grid; place-items: center; container-type: size; }
+.np-art { width: min(100%, 44vh); margin: 0; border-radius: var(--radius); box-shadow: var(--shadow); }
+@supports (container-type: size) { .np-art { width: min(100cqw, 100cqh); } }
 .np-meta { display: flex; align-items: center; gap: 12px; }
 .np-titles { flex: 1; min-width: 0; }
 .np-title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -639,7 +658,8 @@ kbd { font: inherit; font-size: 12px; }
 .np-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .np-actions .chip { display: inline-flex; align-items: center; gap: 6px; }
 .np-viz .visualizer { height: 64px; }
-@media (max-height: 640px) { .np-art { width: min(100%, 30vh); } .np-body { gap: 14px; } }
+@media (max-height: 760px) { .np-viz { display: none; } }
+@media (max-height: 640px) { .np-play { width: 56px; height: 56px; } .np-title { font-size: 20px; } .np-head { padding-block: 2px; } }
 
 /* Touch screens: larger targets, always-visible slider thumbs. */
 @media (pointer: coarse) {
@@ -651,6 +671,26 @@ kbd { font: inherit; font-size: 12px; }
   .chip, .btn, .select, .filter-input { min-height: 40px; }
   .switch { transform: scale(1.1); }
 }
+
+/* ============ tap and click feedback ============ */
+/* No browser-drawn tap flash or selection rectangles; our own subtle feedback instead. */
+* { -webkit-tap-highlight-color: transparent; }
+a, button, [role='button'], [role='switch'], [role='menuitem'], [role='radio'], select, summary, label, .slider { touch-action: manipulation; }
+button, [role='button'], .nav-item, .song-row, .card, .chip, .segmented, .swatch, .player, .nowplaying .np-head, .np-transport, .toast {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+/* The default focus box only for mouse and touch is removed; keyboard focus keeps the accent ring (see :focus-visible). */
+a:focus:not(:focus-visible), button:focus:not(:focus-visible), [role='button']:focus:not(:focus-visible), [tabindex]:focus:not(:focus-visible), select:focus:not(:focus-visible),
+.slider:focus:not(:focus-visible) { outline: none; }
+button, a, .btn, .chip, .nav-item, .song-row, .card, .menu-item { transition: opacity 0.15s ease, filter 0.15s ease, background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s; }
+@media (hover: hover) {
+  .icon-btn:hover:not(:disabled), .chip:hover:not(:disabled), .social-link:hover, .card:hover .artwork { filter: brightness(1.12); }
+  .btn-primary:hover:not(:disabled), .play-btn:hover:not(:disabled) { filter: brightness(1.08); }
+}
+.icon-btn:active:not(:disabled), .chip:active:not(:disabled), .nav-item:active, .menu-item:active:not(:disabled), .segmented button:active, .social-link:active, .swatch:active, .song-fav:active, .song-more:active { opacity: 0.7; }
+.song-row:active, .card:active { opacity: 0.82; }
+.btn:active:not(:disabled), .play-btn:active:not(:disabled) { opacity: 0.85; filter: brightness(0.95); }
+.player-tappable:active .player-text, .player-tappable:active .player-art { opacity: 0.85; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

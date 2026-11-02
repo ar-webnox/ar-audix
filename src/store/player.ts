@@ -1,5 +1,5 @@
 import { createStore } from '../lib/createStore';
-import { db } from '../lib/db';
+import { db, fileProblem } from '../lib/db';
 import { loadJSON, saveJSON } from '../lib/storage';
 import { clamp } from '../lib/format';
 import { getArtworkUrl } from './artwork';
@@ -250,10 +250,27 @@ async function loadAndPlay(id: string, autoplay = true): Promise<void> {
   gaplessTimer = undefined;
   const track = trackById(id);
   player.set({ currentId: id, loading: true, duration: track?.duration ?? 0 });
-  const file = track ? await db.getFile(id) : null;
+  // Started from a click or tap, so the browser may ask for permission to read a linked file again.
+  const file = track ? await db.getFile(id, { prompt: autoplay }) : null;
   if (token !== loadToken) return;
   if (!track || !file) {
-    handleUnplayable(id, 'The file is no longer available.');
+    const problem = fileProblem(id);
+    if (problem === 'permission') {
+      // Nothing from the previous song may keep playing and pressing play must load this song again.
+      audio.pause();
+      setDeckSource(audio, null);
+      if (!autoplay) {
+        // Restoring the last song on startup: stay quiet, the permission is asked for when the user presses play.
+        player.set({ playing: false, loading: false });
+        return;
+      }
+      // Skipping on would only ask for the same permission again for every song.
+      toast('AR AUDIX needs your permission to read this song again. Press play and choose Allow or open Settings → Library.', 'error');
+      failStreak = 0;
+      player.set({ playing: false, loading: false });
+      return;
+    }
+    handleUnplayable(id, problem === 'missing' ? 'The original file was moved or deleted.' : 'The file is no longer available.');
     return;
   }
   const deck = audio;

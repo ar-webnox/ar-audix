@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../lib/db';
-import { extractPicture, hashBytes, makeThumbnail } from '../lib/artwork';
+import { encodeBitmap, extractPicture, hashBytes, makeThumbnail } from '../lib/artwork';
 
 /** Object URLs for thumbnails that have been loaded this session, by artwork id. */
 const urls = new Map<string, string>();
@@ -90,4 +90,32 @@ export function useArtworkUrl(id?: string | null): string | null {
   if (!id) return null;
   if (cached) return cached;
   return loaded?.id === id ? loaded.url : null;
+}
+
+/**
+ * Re-encodes thumbnails stored by earlier versions (JPEG/PNG) as WebP, but only where that saves at least
+ * 20%. A thumbnail is replaced only after the new one was produced successfully.
+ */
+export async function recompressArtwork(): Promise<{ count: number; saved: number }> {
+  let count = 0;
+  let saved = 0;
+  for (const item of await db.listArtwork()) {
+    if (item.type === 'image/webp' || item.size < 16_000) continue;
+    const blob = await db.getArtwork(item.id);
+    if (!blob) continue;
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmap(blob);
+      const next = await encodeBitmap(bitmap);
+      if (next && next.type === 'image/webp' && next.size <= item.size * 0.8 && (await db.putArtwork(item.id, next))) {
+        count++;
+        saved += item.size - next.size;
+      }
+    } catch {
+      // Keep the existing thumbnail.
+    } finally {
+      bitmap?.close();
+    }
+  }
+  return { count, saved };
 }

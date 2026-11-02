@@ -1,4 +1,5 @@
 import { AUDIO_ACCEPT, candidatesFromFiles, type Candidate } from './audioFiles';
+import { isCancel, linkingSupported, pickDirectoryHandle, pickFileHandles } from './fsa';
 
 let active: HTMLInputElement | null = null;
 
@@ -16,7 +17,25 @@ function pick(configure: (input: HTMLInputElement) => void, onPicked: (c: Candid
   input.click();
 }
 
-export function pickFiles(onPicked: (c: Candidate[]) => void): void {
+/** Opens the browser's own file chooser that keeps references to the originals, falling back to the plain one. */
+function pickLinked(source: () => Promise<Candidate[]>, fallback: () => void, onPicked: (c: Candidate[]) => void): void {
+  void source()
+    .then((c) => {
+      if (c.length > 0) onPicked(c);
+    })
+    .catch((e) => {
+      if (!isCancel(e)) fallback();
+    });
+}
+
+/** `link`: keep the songs where they are (supported browsers only) instead of copying them into the browser. */
+export function pickFiles(onPicked: (c: Candidate[]) => void, link = false): void {
+  const plain = () => pickPlainFiles(onPicked);
+  if (link && linkingSupported()) pickLinked(pickFileHandles, plain, onPicked);
+  else plain();
+}
+
+function pickPlainFiles(onPicked: (c: Candidate[]) => void): void {
   pick((input) => {
     input.multiple = true;
     input.accept = AUDIO_ACCEPT;
@@ -25,10 +44,17 @@ export function pickFiles(onPicked: (c: Candidate[]) => void): void {
 
 export function folderPickingSupported(): boolean {
   if (typeof document === 'undefined') return false;
+  if (linkingSupported()) return true;
   return 'webkitdirectory' in document.createElement('input');
 }
 
-export function pickFolder(onPicked: (c: Candidate[]) => void): void {
+export function pickFolder(onPicked: (c: Candidate[]) => void, link = false): void {
+  const plain = () => pickPlainFolder(onPicked);
+  if (link && linkingSupported()) pickLinked(pickDirectoryHandle, plain, onPicked);
+  else plain();
+}
+
+function pickPlainFolder(onPicked: (c: Candidate[]) => void): void {
   pick((input) => {
     input.multiple = true;
     input.setAttribute('webkitdirectory', '');

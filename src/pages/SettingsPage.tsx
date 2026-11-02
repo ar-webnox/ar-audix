@@ -4,7 +4,11 @@ import { formatBytes, formatTotal, plural } from '../lib/format';
 import { promptInstall, usePwa } from '../lib/pwa';
 import { APP_NAME, APP_TAGLINE, APP_VERSION } from '../config/app';
 import { BUILT_BY, SOCIAL_LINKS } from '../config/links';
-import { ACCENTS, clearLibrary, clearRecent, library, resetSettings, updateSettings, useIndex } from '../store/library';
+import { ACCENTS, clearLibrary, clearRecent, importCandidates, library, optimizeStorage, resetSettings, updateSettings, useIndex } from '../store/library';
+import { db } from '../lib/db';
+import { linkingSupported } from '../lib/fsa';
+import { pickFiles, pickFolder } from '../lib/picker';
+import { isStoragePersistent, requestPersistence, storageEstimate, storageLevel, type StorageEstimate } from '../lib/storageInfo';
 import { EQ_PRESETS, MAX_CROSSFADE, fx, resetFx, setCrossfade, setGapless, setPreset, setVisualizer } from '../store/fx';
 import { PLAYBACK_RATES, player, setRate, setVolume, toggleShuffle } from '../store/player';
 import { askConfirm, openImport, openPanel, toast } from '../store/ui';
@@ -199,13 +203,6 @@ function LibrarySettings() {
   const tracks = useStore(library, (s) => s.tracks);
   const persistent = useStore(library, (s) => s.persistent);
   const index = useIndex();
-  const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
-  useEffect(() => {
-    void navigator.storage
-      ?.estimate?.()
-      .then((e) => setUsage({ usage: e.usage ?? 0, quota: e.quota ?? 0 }))
-      .catch(() => undefined);
-  }, [tracks.length]);
   const sortValue = `${settings.defaultSort.key}:${settings.defaultSort.ascending ? 'asc' : 'desc'}`;
   return (
     <section className="settings-card">
@@ -230,6 +227,20 @@ function LibrarySettings() {
       <Row name="Read cover art when importing" help="Extract the cover art embedded in each file.">
         <Switch on={settings.importArtwork} label="Read cover art when importing" onChange={(importArtwork) => updateSettings({ importArtwork })} />
       </Row>
+      <Row
+        name="Keep songs in their original place"
+        help={
+          linkingSupported()
+            ? 'Songs stay where they are on your device and are not copied into the browser, so they use almost no storage. Your browser may ask permission to read them again after you reopen the app.'
+            : 'Your browser can’t keep songs in their original place, so imported songs are stored inside the browser. Chrome or Edge on a computer can avoid this.'
+        }
+      >
+        {linkingSupported() ? (
+          <Switch on={settings.linkFiles} label="Keep songs in their original place" onChange={(linkFiles) => updateSettings({ linkFiles })} />
+        ) : (
+          <span className="badge">Not available</span>
+        )}
+      </Row>
       <dl className="kv">
         <div>
           <dt>Songs</dt>
@@ -245,14 +256,16 @@ function LibrarySettings() {
           <dt>Playtime</dt>
           <dd>{formatTotal(index.totalDuration)}</dd>
         </div>
-        <div>
-          <dt>Browser storage</dt>
-          <dd>
-            {usage ? `${formatBytes(usage.usage)} of ${formatBytes(usage.quota)} available` : 'Unavailable'}
-            {!persistent && <span className="warn"> · Not saved between visits</span>}
-          </dd>
-        </div>
+        {!persistent && (
+          <div>
+            <dt>Saving</dt>
+            <dd>
+              <span className="warn">Not saved between visits</span>
+            </dd>
+          </div>
+        )}
       </dl>
+      <StorageSection />
       <div className="setting-actions">
         <Button variant="primary" icon="upload" onClick={openImport}>
           Import music
@@ -284,6 +297,152 @@ function LibrarySettings() {
         </Button>
       </div>
     </section>
+  );
+}
+
+function StorageSection() {
+  const tracks = useStore(library, (s) => s.tracks);
+  const [est, setEst] = useState<StorageEstimate | null>(null);
+  const [parts, setParts] = useState<Awaited<ReturnType<typeof db.usageBreakdown>> | null>(null);
+  const [access, setAccess] = useState<{ linked: number; ready: number; folders: number } | null>(null);
+  const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    void storageEstimate().then(setEst);
+    void db.usageBreakdown().then(setParts);
+    void db.linkedAccess().then(setAccess);
+    void isStoragePersistent().then(setPersisted);
+  };
+  useEffect(refresh, [tracks.length]);
+
+  const level = storageLevel(est);
+  const copies = tracks.filter((t) => t.src !== 'link');
+  const copyBytes = copies.reduce((n, t) => n + t.size, 0);
+  const linked = tracks.length - copies.length;
+  const listBytes = new Blob([JSON.stringify(tracks)]).size;
+  const pct = est && est.quota > 0 ? Math.min(100, (est.usage / est.quota) * 100) : 0;
+  const needAccess = access ? access.linked - access.ready : 0;
+  const supported = linkingSupported();
+
+  return (
+    <div className="storage">
+      <h3 className="settings-sub">Storage</h3>
+      {level !== 'ok' && est && (
+        <div className={`notice ${level === 'critical' ? 'notice-danger' : 'notice-warn'}`} role="alert">
+          {level === 'critical' ? 'Browser storage is almost full.' : 'Browser storage is running low.'} AR AUDIX is using {formatBytes(est.usage)} of the
+          roughly {formatBytes(est.quota)} your browser currently allows. Free up space below or remove songs you don’t need.
+        </div>
+      )}
+      {est && est.quota > 0 && (
+        <div className="meter" role="img" aria-label={`${Math.round(pct)} percent of the browser's storage allowance used`}>
+          <span style={{ width: `${Math.max(pct, pct > 0 ? 1 : 0)}%` }} className={level !== 'ok' ? 'meter-' + level : undefined} />
+        </div>
+      )}
+      <dl className="kv">
+        <div>
+          <dt>Used by AR AUDIX</dt>
+          <dd>{est ? formatBytes(est.usage) : 'Unavailable'}</dd>
+        </div>
+        <div>
+          <dt>Browser allowance (estimate)</dt>
+          <dd>{est && est.quota > 0 ? `about ${formatBytes(est.quota)}` : 'Not reported'}</dd>
+        </div>
+        <div>
+          <dt>Songs copied into the browser</dt>
+          <dd>{plural(copies.length, 'song')} · {formatBytes(parts?.copies ?? copyBytes)}</dd>
+        </div>
+        <div>
+          <dt>Songs kept in their original place</dt>
+          <dd>{plural(linked, 'song')} · no audio stored</dd>
+        </div>
+        <div>
+          <dt>Cover art</dt>
+          <dd>{parts ? `${formatBytes(parts.artwork)} · ${plural(parts.artworkCount, 'cover')}` : '…'}</dd>
+        </div>
+        <div>
+          <dt>Song list</dt>
+          <dd>about {formatBytes(listBytes)}</dd>
+        </div>
+      </dl>
+      <p className="setting-help storage-note">
+        The allowance is decided by your browser, not by AR AUDIX. It depends on your device’s free space and the browser and it can change; the
+        numbers are the browser’s own estimates. Refresh to re-check.
+      </p>
+      <div className="setting-actions">
+        <Button icon="reset" onClick={refresh}>
+          Refresh
+        </Button>
+        <Button
+          icon="shield"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void optimizeStorage()
+              .then((r) => {
+                toast(
+                  r.bytesFreed > 0
+                    ? `Freed ${formatBytes(r.bytesFreed)}: ${plural(r.artworkRecompressed, 'cover')} compressed, ${plural(r.orphanFiles + r.orphanArtwork, 'leftover item')} removed.`
+                    : 'Already tidy. Nothing to free.',
+                  'success',
+                );
+                refresh();
+              })
+              .catch((e: unknown) => toast(e instanceof Error ? e.message : 'Could not optimize storage.', 'error'))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Clean up and compress
+        </Button>
+        {persisted === false && (
+          <Button
+            onClick={() =>
+              void requestPersistence().then((ok) => {
+                toast(ok ? 'Your browser will keep AR AUDIX’s data.' : 'Your browser declined. It may still clear data if the device runs low on space.', ok ? 'success' : undefined);
+                refresh();
+              })
+            }
+          >
+            Protect from automatic cleanup
+          </Button>
+        )}
+      </div>
+      {needAccess > 0 && (
+        <Row
+          sub
+          name="Allow access to your music"
+          help={`${plural(needAccess, 'song')} kept in their original place need your permission again. Your browser asks for one folder at a time.`}
+        >
+          <Button
+            variant="primary"
+            onClick={() =>
+              void db.requestNextAccess().then((r) => {
+                if (r.remaining > 0) toast(`${plural(r.remaining, 'folder or file')} still need permission. Press the button again.`);
+                refresh();
+              })
+            }
+          >
+            Allow access
+          </Button>
+        </Row>
+      )}
+      {supported && copies.length > 0 && (
+        <Row
+          sub
+          name="Free up space"
+          help={`${plural(copies.length, 'song')} are copied into the browser (${formatBytes(copyBytes)}). Select the folder they came from: AR AUDIX checks each original and only then replaces the copy with a link. Playlists, favorites and history stay as they are and nothing is changed for songs it can’t find.`}
+        >
+          <div className="row-actions">
+            <Button onClick={() => pickFolder((c) => void importCandidates(c), true)} icon="folderMusic">
+              Select folder
+            </Button>
+            <Button onClick={() => pickFiles((c) => void importCandidates(c), true)} icon="file">
+              Select files
+            </Button>
+          </div>
+        </Row>
+      )}
+    </div>
   );
 }
 

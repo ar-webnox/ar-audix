@@ -1,6 +1,7 @@
 import { FORMAT_LABELS } from '../lib/audioFiles';
 import { folderPickingSupported, pickFiles, pickFolder } from '../lib/picker';
-import { importCandidates } from '../store/library';
+import { useStore } from '../lib/createStore';
+import { importCandidates, library } from '../store/library';
 import { Button } from './common';
 import { Icon } from './Icon';
 
@@ -11,6 +12,7 @@ export function ImportDropzone({ onStarted, compact }: { onStarted?: () => void;
     void importCandidates(candidates);
   };
   const folders = folderPickingSupported();
+  const link = useStore(library, (s) => s.settings.linkFiles);
 
   return (
     <div className={`dropzone${compact ? ' compact' : ''}`}>
@@ -20,12 +22,12 @@ export function ImportDropzone({ onStarted, compact }: { onStarted?: () => void;
       <h3>Drag and drop your music here</h3>
       <p>Drop audio files or entire folders anywhere in this window.</p>
       <div className="dropzone-actions">
-        <Button variant="primary" icon="file" onClick={() => pickFiles(start)}>
+        <Button variant="primary" icon="file" onClick={() => pickFiles(start, link)}>
           Select files
         </Button>
         <Button
           icon="folderMusic"
-          onClick={() => pickFolder(start)}
+          onClick={() => pickFolder(start, link)}
           disabled={!folders}
           title={folders ? undefined : 'Your browser can’t select folders. Drag a folder in or select files instead.'}
         >
